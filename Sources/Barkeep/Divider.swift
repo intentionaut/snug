@@ -90,7 +90,14 @@ final class Divider {
     private func scheduleRehide() {
         rehideTimer?.invalidate()
         rehideTimer = Timer.scheduledTimer(withTimeInterval: Self.rehideDelay, repeats: false) { [weak self] _ in
-            self?.collapse()
+            guard let self else { return }
+            // A ⌘-drag to rearrange icons is invisible to our click monitor, so check the live
+            // modifier and button state. Both class properties need no permission.
+            if NSEvent.modifierFlags.contains(.command) || NSEvent.pressedMouseButtons != 0 {
+                self.scheduleRehide()
+            } else {
+                self.collapse()
+            }
         }
     }
 
