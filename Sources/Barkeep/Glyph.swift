@@ -1,11 +1,9 @@
 import AppKit
 
-/// The menu bar icon, drawn as a solid template image so macOS tints it for light and dark bars.
-/// Items hidden: short boxed beard (design/icon-options, round 2 option 4).
-/// Items showing: full beard (round 2 option 1).
-/// Both share one frame in the app icon's 1024-unit space, so the icon never changes width.
+/// The menu bar icon: a solid short boxed beard and bowtie (design/icon-options, round 2 option 4),
+/// the same in every state. Drawn as a template image so macOS tints it for light and dark bars.
 enum Glyph {
-    private static let viewBox = CGRect(x: 240, y: 300, width: 544, height: 580)
+    private static let viewBox = CGRect(x: 240, y: 350, width: 544, height: 500)
 
     static func image(collapsed: Bool) -> NSImage {
         let height: CGFloat = 16
@@ -15,13 +13,9 @@ enum Glyph {
             let scale = rect.height / viewBox.height
             ctx.scaleBy(x: scale, y: scale)
             ctx.translateBy(x: -viewBox.minX, y: -viewBox.minY)
-            if collapsed {
-                ctx.addPath(boxedBeard)
-                addBow(to: ctx, centreY: 730, size: 110)
-            } else {
-                ctx.addPath(fullBeard)
-                addBow(to: ctx, centreY: 770, size: 95)
-            }
+            ctx.addPath(boxedBeard)
+            ctx.fillPath()
+            addBow(to: ctx, centreY: 730, size: 110)
             ctx.fillPath()
             return true
         }
@@ -29,18 +23,6 @@ enum Glyph {
         image.accessibilityDescription = collapsed ? "Show hidden items" : "Hide items"
         return image
     }
-
-    private static let fullBeard: CGPath = {
-        let p = CGMutablePath()
-        p.move(to: CGPoint(x: 300, y: 360))
-        p.addQuadCurve(to: CGPoint(x: 512, y: 640), control: CGPoint(x: 300, y: 600))
-        p.addQuadCurve(to: CGPoint(x: 724, y: 360), control: CGPoint(x: 724, y: 600))
-        p.addQuadCurve(to: CGPoint(x: 620, y: 480), control: CGPoint(x: 700, y: 470))
-        p.addLine(to: CGPoint(x: 404, y: 480))
-        p.addQuadCurve(to: CGPoint(x: 300, y: 360), control: CGPoint(x: 324, y: 470))
-        p.closeSubpath()
-        return p
-    }()
 
     private static let boxedBeard: CGPath = {
         let p = CGMutablePath()
