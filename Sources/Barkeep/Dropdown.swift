@@ -95,11 +95,15 @@ private final class KeyPanel: NSPanel {
 }
 
 final class DropdownModel: ObservableObject {
+    private static let log = Logger(subsystem: "local.elle.barkeep", category: "dropdown")
     @Published var trusted = MenuBarItems.isTrusted
     @Published var sections: [Section: [MenuBarItem]] = [:]
     @Published var status: String?
     @Published var busy = false
     @Published var loading = false
+    @Published var images: [String: NSImage] = [:]
+    @Published var canCapture = IconCapture.isAllowed
+    @Published var captureRequested = false
     var close: (() -> Void)?
     var relayout: (() -> Void)?
     private let divider: Divider
@@ -147,6 +151,20 @@ final class DropdownModel: ObservableObject {
         guard let d = divider.dividerFrame, let a = divider.alwaysFrame else { return }
         sections = Dictionary(grouping: items) { MenuBarItems.section(of: $0, divider: d, always: a) }
         DispatchQueue.main.async { self.relayout?() }
+        canCapture = IconCapture.isAllowed
+        guard canCapture else { return }
+        Task {
+            let captured = await IconCapture.capture(items)
+            await MainActor.run {
+                self.images = captured
+                self.relayout?()
+            }
+        }
+    }
+
+    func requestCapture() {
+        IconCapture.request()
+        captureRequested = true
     }
 
     private func section(of item: MenuBarItem) -> Section? {
@@ -154,16 +172,25 @@ final class DropdownModel: ObservableObject {
         return MenuBarItems.section(of: item, divider: d, always: a)
     }
 
-    /// Clicks the real icon: shows it for a moment if it's hidden, then re-hides on the usual timer.
+    /// Clicks the real icon. A hidden one is shown only until its menu closes; the click fires as
+    /// soon as the icon is back on screen rather than after a fixed wait.
     func use(_ id: String) {
         guard !busy, let item = sections.values.joined().first(where: { $0.id == id }) else { return }
         let current = section(of: item)
         close?()
-        if current != .showing { divider.reveal(includeAlways: current == .always) }
-        DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + (current == .showing ? 0 : 0.35)) {
-            // Re-read: revealing moved it.
-            guard let live = MenuBarItems.read().first(where: { $0.id == id }) else { return }
+        let started = Date()
+        if current != .showing { divider.reveal(includeAlways: current == .always, rehideAfter: 1) }
+        let screen = NSScreen.screens.first?.frame ?? .zero
+        DispatchQueue.global(qos: .userInitiated).async {
+            var live: MenuBarItem?
+            for _ in 0..<20 {
+                live = MenuBarItems.read().first { $0.id == id }
+                if let x = live?.frame.minX, x >= screen.minX, x < screen.maxX { break }
+                Thread.sleep(forTimeInterval: 0.03)
+            }
+            guard let live else { return }
             MenuBarItems.click(live)
+            Self.log.notice("clicked \(item.name, privacy: .public) \(Date().timeIntervalSince(started), privacy: .public)s after the press")
         }
     }
 
@@ -253,11 +280,15 @@ struct DropdownView: View {
             if model.trusted {
                 VStack(alignment: .leading, spacing: 10) {
                     ForEach(Section.allCases) { section in
-                        Row(section: section, items: model.sections[section] ?? [], busy: model.busy,
-                            onUse: model.use, onDrop: { model.move($0, to: section) })
+                        Row(section: section, items: model.sections[section] ?? [], images: model.images,
+                            busy: model.busy, onUse: model.use, onDrop: { model.move($0, to: section) })
                     }
                     if model.sections.isEmpty && model.loading {
                         Text("Reading your menu bar…").font(.caption).foregroundStyle(.secondary)
+                    }
+                    if !model.canCapture {
+                        CaptureBanner(requested: model.captureRequested, onAllow: model.requestCapture,
+                                      onReopen: IconCapture.relaunch)
                     }
                     if let status = model.status {
                         Text(status).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
@@ -269,7 +300,7 @@ struct DropdownView: View {
                 PermissionView { model.requestTrust() }
             }
         }
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+        .glass()
     }
 }
 
@@ -277,6 +308,7 @@ struct DropdownView: View {
 private struct Row: View {
     let section: Section
     let items: [MenuBarItem]
+    let images: [String: NSImage]
     let busy: Bool
     let onUse: (String) -> Void
     let onDrop: (String) -> Void
@@ -285,10 +317,15 @@ private struct Row: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(section.rawValue.uppercased()).font(.caption2.weight(.semibold)).foregroundStyle(.secondary)
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 30), spacing: 4)], alignment: .leading, spacing: 4) {
+            Flow(spacing: 2) {
                 ForEach(items) { item in
                     Button { onUse(item.id) } label: {
-                        Image(nsImage: item.icon).resizable().frame(width: 20, height: 20).padding(4)
+                        // The real icon at its menu bar size when captured; the app's Dock icon otherwise.
+                        if let image = images[item.id] {
+                            Image(nsImage: image).frame(width: image.size.width, height: image.size.height)
+                        } else {
+                            Image(nsImage: item.icon).resizable().frame(width: 20, height: 20).padding(6)
+                        }
                     }
                     .buttonStyle(.plain)
                     .help(item.name)
@@ -302,7 +339,7 @@ private struct Row: View {
             }
         }
         .padding(8)
-        .background(RoundedRectangle(cornerRadius: 8).fill(targeted ? Color.accentColor.opacity(0.15) : Color.primary.opacity(0.04)))
+        .background(RoundedRectangle(cornerRadius: 10).fill(targeted ? Color.accentColor.opacity(0.18) : Color.primary.opacity(0.05)))
         .dropDestination(for: String.self) { ids, _ in
             guard let id = ids.first else { return false }
             onDrop(id)
@@ -330,5 +367,67 @@ private struct PermissionView: View {
         .padding(16)
         .frame(width: 400)
         .fixedSize(horizontal: false, vertical: true)
+    }
+}
+
+/// Lays icons out left to right, wrapping to a new line when the row is full. Icons vary in width
+/// (a clock is wider than a battery), so a fixed grid would leave gaps.
+private struct Flow: Layout {
+    var spacing: CGFloat
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let width = proposal.width ?? 400
+        var x: CGFloat = 0, y: CGFloat = 0, line: CGFloat = 0
+        for view in subviews {
+            let size = view.sizeThatFits(.unspecified)
+            if x > 0, x + size.width > width { x = 0; y += line + spacing; line = 0 }
+            x += size.width + spacing
+            line = max(line, size.height)
+        }
+        return CGSize(width: width, height: y + line)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        var x = bounds.minX, y = bounds.minY, line: CGFloat = 0
+        for view in subviews {
+            let size = view.sizeThatFits(.unspecified)
+            if x > bounds.minX, x + size.width > bounds.maxX { x = bounds.minX; y += line + spacing; line = 0 }
+            view.place(at: CGPoint(x: x, y: y), proposal: ProposedViewSize(size))
+            x += size.width + spacing
+            line = max(line, size.height)
+        }
+    }
+}
+
+private struct CaptureBanner: View {
+    let requested: Bool
+    let onAllow: () -> Void
+    let onReopen: () -> Void
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 10) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Show real icons").font(.callout.weight(.semibold))
+                Text(requested
+                     ? "Once Barkeep is on in Screen & System Audio Recording, reopen it to apply."
+                     : "Needs Screen Recording. Barkeep captures only the menu bar icons' own small windows, keeps the pictures in memory, never saves them, and nothing leaves this Mac.")
+                    .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 0)
+            Button(requested ? "Reopen" : "Allow…", action: requested ? onReopen : onAllow)
+        }
+        .padding(8)
+        .background(RoundedRectangle(cornerRadius: 10).fill(Color.primary.opacity(0.05)))
+    }
+}
+
+private extension View {
+    /// Liquid Glass on macOS 26, the older frosted material before it.
+    @ViewBuilder func glass() -> some View {
+        if #available(macOS 26, *) {
+            self.glassEffect(.regular, in: RoundedRectangle(cornerRadius: 18))
+        } else {
+            self.background(.regularMaterial, in: RoundedRectangle(cornerRadius: 18))
+        }
     }
 }

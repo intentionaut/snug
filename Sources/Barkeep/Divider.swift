@@ -92,12 +92,12 @@ final class Divider {
 
     /// Shows hidden icons (and always-hidden ones if asked) so one can be clicked, then re-hides
     /// on the usual timer or click-away.
-    func reveal(includeAlways: Bool) {
+    func reveal(includeAlways: Bool, rehideAfter delay: TimeInterval = Divider.rehideDelay) {
         dividerItem.length = NSStatusItem.variableLength
         if includeAlways { alwaysItem.length = NSStatusItem.variableLength } else { stretchAlways() }
         isCollapsed = false
         updateIcon()
-        scheduleRehide()
+        scheduleRehide(after: delay)
     }
 
     /// Shows everything, both sections included, and holds it open until `endArranging`.
@@ -124,14 +124,15 @@ final class Divider {
         alwaysItem.length = Self.collapsedLength
     }
 
-    private func scheduleRehide() {
+    private func scheduleRehide(after delay: TimeInterval = Divider.rehideDelay) {
         rehideTimer?.invalidate()
-        rehideTimer = Timer.scheduledTimer(withTimeInterval: Self.rehideDelay, repeats: false) { [weak self] _ in
+        rehideTimer = Timer.scheduledTimer(withTimeInterval: delay, repeats: false) { [weak self] _ in
             guard let self else { return }
             // A ⌘-drag to rearrange icons is invisible to our click monitor, so check the live
             // modifier and button state. Both class properties need no permission.
             if NSEvent.modifierFlags.contains(.command) || NSEvent.pressedMouseButtons != 0 || Self.menuIsOpen() {
-                self.scheduleRehide()
+                // Check again soon, so the icon hides as soon as its menu closes.
+                self.scheduleRehide(after: 0.5)
             } else {
                 self.collapse()
             }
