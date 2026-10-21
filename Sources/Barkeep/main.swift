@@ -32,6 +32,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         divider = Divider()
         dropdown = Dropdown(divider: divider)
         divider.onOpen = { [weak self] in self?.dropdown.toggle() }
+        // `open build/Barkeep.app --args --request-capture` shows the Screen Recording prompt.
+        if CommandLine.arguments.contains("--request-capture") { IconCapture.request() }
         if CommandLine.arguments.contains("--dump") {
             dump()
             DispatchQueue.main.asyncAfter(deadline: .now() + 3) { self.dropdown.open() }

@@ -23,9 +23,11 @@ final class Dropdown: NSObject {
             guard let self, let panel = self.panel, panel.isVisible else { return }
             self.position(panel)
         }
-        // Read once at launch so the first open already has the list.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [model] in
-            if MenuBarItems.isTrusted { model.load() }
+        // Hidden icons can only be photographed while on screen, so read and capture everything at
+        // launch, while nothing is hidden yet, then hide.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [model, divider] in
+            guard MenuBarItems.isTrusted else { return divider.collapse() }
+            model.load { divider.collapse() }
         }
     }
 
@@ -135,28 +137,30 @@ final class DropdownModel: ObservableObject {
     }
 
     /// Keeps showing the last list while a fresh one is read, so the panel is never empty on open.
-    func load() {
+    func load(then done: (() -> Void)? = nil) {
         guard !loading else { return }
         loading = true
         DispatchQueue.global(qos: .userInitiated).async {
             let items = MenuBarItems.read()
             DispatchQueue.main.async {
                 self.loading = false
-                self.sort(items)
+                self.sort(items, then: done)
             }
         }
     }
 
-    private func sort(_ items: [MenuBarItem]) {
+    private func sort(_ items: [MenuBarItem], then done: (() -> Void)? = nil) {
         guard let d = divider.dividerFrame, let a = divider.alwaysFrame else { return }
         sections = Dictionary(grouping: items) { MenuBarItems.section(of: $0, divider: d, always: a) }
         DispatchQueue.main.async { self.relayout?() }
         canCapture = IconCapture.isAllowed
-        guard canCapture else { return }
+        guard canCapture else { done?(); return }
         Task {
             let captured = await IconCapture.capture(items)
             await MainActor.run {
-                self.images = captured
+                // Keep earlier pictures of icons that are off screen now; replace the rest.
+                self.images.merge(captured) { _, new in new }
+                done?()
                 self.relayout?()
             }
         }
@@ -190,6 +194,8 @@ final class DropdownModel: ObservableObject {
             }
             guard let live else { return }
             MenuBarItems.click(live)
+            // It's on screen now, so refresh its picture.
+            DispatchQueue.main.async { self.load() }
             Self.log.notice("clicked \(item.name, privacy: .public) \(Date().timeIntervalSince(started), privacy: .public)s after the press")
         }
     }

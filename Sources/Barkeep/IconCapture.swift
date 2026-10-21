@@ -31,8 +31,10 @@ enum IconCapture {
         var images: [String: NSImage] = [:]
         await withTaskGroup(of: (String, NSImage?).self) { group in
             for item in items {
-                // Both use global coordinates with a top-left origin.
-                guard let window = windows.first(where: { abs($0.frame.minX - item.frame.minX) < 2 && abs($0.frame.width - item.frame.width) < 2 }) else { continue }
+                // Both use global coordinates with a top-left origin. The window carries a few points of
+                // padding around the icon, so match the window that contains the icon's centre.
+                // Skip the dividers' own 5,016-wide windows.
+                guard let window = windows.first(where: { $0.frame.width < 400 && $0.frame.minX <= item.frame.midX && $0.frame.maxX >= item.frame.midX }) else { continue }
                 group.addTask {
                     let config = SCStreamConfiguration()
                     config.width = Int(window.frame.width * scale)
@@ -50,6 +52,8 @@ enum IconCapture {
                 if let image { images[id] = image }
             }
         }
+        let missed = items.filter { images[$0.id] == nil }.map(\.name).joined(separator: ", ")
+        log.notice("missed: \(missed, privacy: .public)")
         log.notice("captured \(images.count, privacy: .public) of \(items.count, privacy: .public) icons in \(Date().timeIntervalSince(started), privacy: .public)s")
         return images
     }

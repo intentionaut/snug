@@ -44,8 +44,7 @@ final class Divider {
             self?.clickedElsewhere()
         }
 
-        // Start collapsed once the items have been placed.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { self.collapse() }
+        // Start shown; the dropdown collapses once it has pictures of every icon (see Dropdown.init).
     }
 
     deinit {
