@@ -20,6 +20,10 @@ final class Dropdown: NSObject {
             guard let self, let panel = self.panel, panel.isVisible else { return }
             self.position(panel)
         }
+        // Read once at launch so the first open already has the list.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [model] in
+            if MenuBarItems.isTrusted { model.load() }
+        }
     }
 
     var isOpen: Bool { panel?.isVisible == true }
@@ -85,6 +89,7 @@ final class DropdownModel: ObservableObject {
     @Published var sections: [Section: [MenuBarItem]] = [:]
     @Published var status: String?
     @Published var busy = false
+    @Published var loading = false
     var close: (() -> Void)?
     var relayout: (() -> Void)?
     private let divider: Divider
@@ -115,10 +120,16 @@ final class DropdownModel: ObservableObject {
         }
     }
 
+    /// Keeps showing the last list while a fresh one is read, so the panel is never empty on open.
     func load() {
+        guard !loading else { return }
+        loading = true
         DispatchQueue.global(qos: .userInitiated).async {
             let items = MenuBarItems.read()
-            DispatchQueue.main.async { self.sort(items) }
+            DispatchQueue.main.async {
+                self.loading = false
+                self.sort(items)
+            }
         }
     }
 
@@ -234,6 +245,9 @@ struct DropdownView: View {
                     ForEach(Section.allCases) { section in
                         Row(section: section, items: model.sections[section] ?? [], busy: model.busy,
                             onUse: model.use, onDrop: { model.move($0, to: section) })
+                    }
+                    if model.sections.isEmpty && model.loading {
+                        Text("Reading your menu bar…").font(.caption).foregroundStyle(.secondary)
                     }
                     if let status = model.status {
                         Text(status).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)

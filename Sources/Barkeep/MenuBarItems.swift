@@ -30,26 +30,37 @@ enum MenuBarItems {
         _ = AXIsProcessTrustedWithOptions([key: true] as CFDictionary)
     }
 
-    /// Every app's menu bar icons, left to right. Slow apps are skipped after a short timeout.
+    /// Every app's menu bar icons, left to right. Apps are asked in parallel, since one slow app
+    /// would otherwise hold up the rest; each gets a short timeout.
     static func read() -> [MenuBarItem] {
+        let started = Date()
         let me = ProcessInfo.processInfo.processIdentifier
-        var items: [MenuBarItem] = []
-        for app in NSWorkspace.shared.runningApplications where app.processIdentifier != me {
-            let appElement = AXUIElementCreateApplication(app.processIdentifier)
-            AXUIElementSetMessagingTimeout(appElement, 0.25)
-            guard let bar: AXUIElement = attribute(appElement, "AXExtrasMenuBar"),
-                  let children: [AXUIElement] = attribute(bar, kAXChildrenAttribute) else { continue }
-            let appName = app.localizedName ?? app.bundleIdentifier ?? "Unknown"
-            for (index, child) in children.enumerated() {
-                guard let frame = frame(of: child) else { continue }
-                let label: String? = attribute(child, kAXDescriptionAttribute) ?? attribute(child, kAXTitleAttribute)
-                let name = children.count > 1 ? "\(appName): \(label?.isEmpty == false ? label! : "item \(index + 1)")" : appName
-                items.append(MenuBarItem(id: "\(app.bundleIdentifier ?? appName)#\(index)",
-                                         pid: app.processIdentifier, name: name,
-                                         icon: app.icon ?? NSImage(), frame: frame))
-            }
+        let apps = NSWorkspace.shared.runningApplications.filter { $0.processIdentifier != me }
+        var perApp = [[MenuBarItem]](repeating: [], count: apps.count)
+        let lock = NSLock()
+        DispatchQueue.concurrentPerform(iterations: apps.count) { i in
+            let found = items(of: apps[i])
+            lock.lock(); perApp[i] = found; lock.unlock()
         }
-        return items.sorted { $0.frame.minX < $1.frame.minX }
+        let all = perApp.joined().sorted { $0.frame.minX < $1.frame.minX }
+        log.notice("read \(all.count, privacy: .public) items from \(apps.count, privacy: .public) apps in \(Date().timeIntervalSince(started), privacy: .public)s")
+        return all
+    }
+
+    private static func items(of app: NSRunningApplication) -> [MenuBarItem] {
+        let appElement = AXUIElementCreateApplication(app.processIdentifier)
+        AXUIElementSetMessagingTimeout(appElement, 0.25)
+        guard let bar: AXUIElement = attribute(appElement, "AXExtrasMenuBar"),
+              let children: [AXUIElement] = attribute(bar, kAXChildrenAttribute) else { return [] }
+        let appName = app.localizedName ?? app.bundleIdentifier ?? "Unknown"
+        return children.enumerated().compactMap { index, child in
+            // Control Centre keeps empty slots for modules that are switched off; they have no size.
+            guard let frame = frame(of: child), frame.width > 0 else { return nil }
+            let label: String? = attribute(child, kAXDescriptionAttribute) ?? attribute(child, kAXTitleAttribute)
+            let name = children.count > 1 ? "\(appName): \(label?.isEmpty == false ? label! : "item \(index + 1)")" : appName
+            return MenuBarItem(id: "\(app.bundleIdentifier ?? appName)#\(index)", pid: app.processIdentifier,
+                               name: name, icon: app.icon ?? NSImage(), frame: frame)
+        }
     }
 
     /// Which section an icon is in, from where it sits relative to the two dividers.
