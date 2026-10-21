@@ -78,9 +78,15 @@ final class ArrangeModel: ObservableObject {
         let topLeft = CGRect(x: a.minX, y: screen.frame.maxY - a.maxY, width: a.width, height: a.height)
         let me = MenuBarItem(id: "barkeep.always", pid: ProcessInfo.processInfo.processIdentifier,
                              name: "the always-hidden divider", icon: NSImage(), frame: topLeft)
-        MenuBarItems.drag(me, toX: d.minX + 2)
-        if divider.alwaysIsMisplaced {
-            status = "Couldn't place the always-hidden divider ‖. ⌘-drag it to the left of │ once."
+        // Drag off the main thread: AppKit handles our own item's drag here, and a sleeping main thread can't.
+        DispatchQueue.global(qos: .userInitiated).async {
+            MenuBarItems.drag(me, toX: d.minX + 2)
+            DispatchQueue.main.async {
+                if self.divider.alwaysIsMisplaced {
+                    self.status = "Couldn't place the always-hidden divider ‖. ⌘-drag it to the left of │ once."
+                }
+                self.load()
+            }
         }
     }
 
