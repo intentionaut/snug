@@ -1,7 +1,7 @@
 import AppKit
 import os
 
-/// Two status items: a chevron toggle (rightmost) and a thin divider to its left.
+/// Two status items: a beard-and-bowtie toggle (rightmost) and a thin divider to its left.
 /// Collapsing stretches the divider so everything left of it is pushed off screen.
 /// ⌘-drag the divider to choose where hiding starts.
 final class Divider {
@@ -109,8 +109,6 @@ final class Divider {
     }
 
     private func updateIcon() {
-        let name = isCollapsed ? "chevron.left" : "chevron.right"
-        let label = isCollapsed ? "Show hidden items" : "Hide items"
-        toggleItem.button?.image = NSImage(systemSymbolName: name, accessibilityDescription: label)
+        toggleItem.button?.image = Glyph.image(filled: isCollapsed)
     }
 }
