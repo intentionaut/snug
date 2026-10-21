@@ -89,6 +89,20 @@ enum MenuBarItems {
         log.notice("dragged \(item.name, privacy: .public) from \(start.x, privacy: .public) to \(end.x, privacy: .public)")
     }
 
+    /// Clicks an icon the way a person would, then puts the pointer back.
+    static func click(_ item: MenuBarItem) {
+        let point = CGPoint(x: item.frame.midX, y: item.frame.midY)
+        let restore = CGEvent(source: nil)?.location
+        let source = CGEventSource(stateID: .hidSystemState)
+        for type in [CGEventType.mouseMoved, .leftMouseDown, .leftMouseUp] {
+            CGEvent(mouseEventSource: source, mouseType: type, mouseCursorPosition: point, mouseButton: .left)?
+                .post(tap: .cghidEventTap)
+            Thread.sleep(forTimeInterval: 0.03)
+        }
+        if let restore { CGWarpMouseCursorPosition(restore) }
+        log.notice("clicked \(item.name, privacy: .public)")
+    }
+
     private static func attribute<T>(_ element: AXUIElement, _ name: String) -> T? {
         var value: CFTypeRef?
         guard AXUIElementCopyAttributeValue(element, name as CFString, &value) == .success else { return nil }

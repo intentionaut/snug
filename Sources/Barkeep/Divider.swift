@@ -2,8 +2,8 @@ import AppKit
 import os
 
 /// Three status items, left to right: an always-hidden divider (‖), the divider (│) and the
-/// beard toggle. Collapsing stretches a divider so everything left of it is pushed off screen.
-/// The always-hidden divider stays stretched except while icons are being arranged.
+/// beard. Collapsing stretches a divider so everything left of it is pushed off screen.
+/// Clicking the beard opens the dropdown; hidden icons are revealed only to use or move one.
 final class Divider {
     static let rehideDelay: TimeInterval = 5
     private static let collapsedLength: CGFloat = 10_000
@@ -17,7 +17,7 @@ final class Divider {
     private let menu = NSMenu()
     private(set) var isCollapsed = false
     private(set) var isArranging = false
-    var onArrange: (() -> Void)?
+    var onOpen: (() -> Void)?
 
     init() {
         // Items created later sit further left, so the toggle goes first.
@@ -37,9 +37,6 @@ final class Divider {
         alwaysItem.button?.title = "‖"
         alwaysItem.button?.appearsDisabled = true
 
-        let arrange = menu.addItem(withTitle: "Arrange Icons…", action: #selector(arrangeClicked), keyEquivalent: "")
-        arrange.target = self
-        menu.addItem(.separator())
         menu.addItem(withTitle: "Quit Barkeep", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         toggleItem.button?.sendAction(on: [.leftMouseUp, .rightMouseUp])
 
@@ -72,16 +69,10 @@ final class Divider {
             toggleItem.menu = nil
             return
         }
-        toggle()
+        onOpen?()
     }
 
-    @objc private func arrangeClicked() {
-        onArrange?()
-    }
-
-    func toggle() {
-        isCollapsed ? expand() : collapse()
-    }
+    var toggleFrame: CGRect? { toggleItem.button?.window?.frame }
 
     func collapse() {
         rehideTimer?.invalidate()
@@ -99,9 +90,11 @@ final class Divider {
         updateIcon()
     }
 
-    func expand() {
+    /// Shows hidden icons (and always-hidden ones if asked) so one can be clicked, then re-hides
+    /// on the usual timer or click-away.
+    func reveal(includeAlways: Bool) {
         dividerItem.length = NSStatusItem.variableLength
-        stretchAlways()
+        if includeAlways { alwaysItem.length = NSStatusItem.variableLength } else { stretchAlways() }
         isCollapsed = false
         updateIcon()
         scheduleRehide()
@@ -137,12 +130,20 @@ final class Divider {
             guard let self else { return }
             // A ⌘-drag to rearrange icons is invisible to our click monitor, so check the live
             // modifier and button state. Both class properties need no permission.
-            if NSEvent.modifierFlags.contains(.command) || NSEvent.pressedMouseButtons != 0 {
+            if NSEvent.modifierFlags.contains(.command) || NSEvent.pressedMouseButtons != 0 || Self.menuIsOpen() {
                 self.scheduleRehide()
             } else {
                 self.collapse()
             }
         }
+    }
+
+    /// True while any app has a menu open, so a revealed icon isn't pulled away from under its menu.
+    /// Window layers and owners are readable without Screen Recording; only titles need it.
+    private static func menuIsOpen() -> Bool {
+        let windows = CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID) as? [[String: Any]] ?? []
+        let menuLevel = Int(CGWindowLevelForKey(.popUpMenuWindow))
+        return windows.contains { ($0[kCGWindowLayer as String] as? Int) == menuLevel }
     }
 
     /// Global monitors only see clicks in other apps. A click in the menu bar
