@@ -32,7 +32,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         divider = Divider()
         dropdown = Dropdown(divider: divider)
         divider.onOpen = { [weak self] in self?.dropdown.toggle() }
-        if CommandLine.arguments.contains("--dump") { dump() }
+        if CommandLine.arguments.contains("--dump") {
+            dump()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 3) { self.dropdown.open() }
+        }
         // ⌃⌥⌘B
         hotKey = HotKey(keyCode: 11, modifiers: [.control, .option, .command]) { [weak self] in
             self?.dropdown.toggle()

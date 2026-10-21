@@ -1,14 +1,17 @@
 import AppKit
 import SwiftUI
+import os
 
 /// The dropdown under the beard: every menu bar icon in three rows (Showing, Hidden, Always hidden).
 /// Click an icon to use it; drag it to another row to move it in the menu bar.
 /// The menu bar itself stays collapsed; hidden icons are only shown for a moment when used or moved.
 final class Dropdown: NSObject {
+    private static let log = Logger(subsystem: "local.elle.barkeep", category: "dropdown")
     private let model: DropdownModel
     private let divider: Divider
     private var panel: NSPanel?
     private var clickAway: Any?
+    private var hosting: NSHostingController<DropdownView>?
 
     init(divider: Divider) {
         self.divider = divider
@@ -37,6 +40,10 @@ final class Dropdown: NSObject {
         position(panel)
         panel.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [self] in
+            let counts = Section.allCases.map { "\($0.rawValue)=\(self.model.sections[$0]?.count ?? 0)" }.joined(separator: " ")
+            Self.log.notice("panel frame=\(String(describing: panel.frame), privacy: .public) visible=\(panel.isVisible, privacy: .public) trusted=\(model.trusted, privacy: .public) \(counts, privacy: .public) screen=\(String(describing: NSScreen.screens.first?.frame), privacy: .public) toggle=\(String(describing: self.divider.toggleFrame), privacy: .public)")
+        }
         clickAway = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] _ in
             self?.close()
         }
@@ -59,17 +66,20 @@ final class Dropdown: NSObject {
         panel.backgroundColor = .clear
         panel.hasShadow = true
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
-        let host = NSHostingView(rootView: DropdownView(model: model))
-        host.sizingOptions = [.preferredContentSize]
-        panel.contentView = host
+        let host = NSHostingController(rootView: DropdownView(model: model))
+        hosting = host
+        panel.contentViewController = host
         panel.onEscape = { [weak self] in self?.close() }
         return panel
     }
 
     /// Right edge under the beard, top edge just below the menu bar.
     private func position(_ panel: NSPanel) {
-        panel.contentView?.layoutSubtreeIfNeeded()
-        let size = panel.contentView?.fittingSize ?? panel.frame.size
+        // Ask SwiftUI directly: a hosting view's fittingSize comes back 0 × 0 for this content.
+        guard let size = hosting?.sizeThatFits(in: NSSize(width: 440, height: 900)), size.width > 0, size.height > 0 else {
+            Self.log.error("dropdown has no size yet")
+            return
+        }
         guard let anchor = divider.toggleFrame, let screen = NSScreen.screens.first(where: { $0.frame.intersects(anchor) }) else { return }
         let x = min(anchor.maxX, screen.visibleFrame.maxX - 8) - size.width
         let y = screen.visibleFrame.maxY - 6 - size.height
