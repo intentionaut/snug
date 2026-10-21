@@ -6,7 +6,8 @@ cd "${0:A:h}"
 swift build -c release
 app=build/Barkeep.app
 rm -rf "$app"
-mkdir -p "$app/Contents/MacOS"
+mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
+cp design/Barkeep.icns "$app/Contents/Resources/Barkeep.icns"
 cp .build/release/Barkeep "$app/Contents/MacOS/Barkeep"
 
 cat > "$app/Contents/Info.plist" <<'PLIST'
@@ -20,6 +21,7 @@ cat > "$app/Contents/Info.plist" <<'PLIST'
   <key>CFBundleShortVersionString</key><string>0.1.0</string>
   <key>CFBundleVersion</key><string>1</string>
   <key>LSMinimumSystemVersion</key><string>14.0</string>
+  <key>CFBundleIconFile</key><string>Barkeep</string>
   <key>LSUIElement</key><true/>
 </dict></plist>
 PLIST
