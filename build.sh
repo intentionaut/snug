@@ -30,4 +30,8 @@ PLIST
 
 ./check-no-network.sh .build/release/Barkeep
 codesign --force --sign "Apple Development" "$app"
-echo "built $app"
+# Install where a login item can rely on it staying put; build/ is wiped on every build.
+mkdir -p ~/Applications
+rm -rf ~/Applications/Barkeep.app
+cp -R "$app" ~/Applications/Barkeep.app
+echo "built $app, installed ~/Applications/Barkeep.app"

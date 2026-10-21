@@ -5,7 +5,13 @@ import os
 /// beard. Collapsing stretches a divider so everything left of it is pushed off screen.
 /// Clicking the beard opens the dropdown; hidden icons are revealed only to use or move one.
 final class Divider {
-    static let rehideDelay: TimeInterval = 5
+    static let rehideDelayKey = "rehideDelay"
+    static let defaultRehideDelay: TimeInterval = 5
+    /// Set in Settings; read each time so a change applies straight away.
+    static var rehideDelay: TimeInterval {
+        let saved = UserDefaults.standard.double(forKey: rehideDelayKey)
+        return saved > 0 ? saved : defaultRehideDelay
+    }
     private static let collapsedLength: CGFloat = 10_000
 
     private let log = Logger(subsystem: "local.elle.barkeep", category: "divider")
@@ -18,6 +24,7 @@ final class Divider {
     private(set) var isCollapsed = false
     private(set) var isArranging = false
     var onOpen: (() -> Void)?
+    var onSettings: (() -> Void)?
 
     init() {
         // Items created later sit further left, so the toggle goes first.
@@ -37,6 +44,9 @@ final class Divider {
         alwaysItem.button?.title = "‖"
         alwaysItem.button?.appearsDisabled = true
 
+        let settings = menu.addItem(withTitle: "Settings…", action: #selector(settingsClicked), keyEquivalent: ",")
+        settings.target = self
+        menu.addItem(.separator())
         menu.addItem(withTitle: "Quit Barkeep", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         toggleItem.button?.sendAction(on: [.leftMouseUp, .rightMouseUp])
 
@@ -70,6 +80,8 @@ final class Divider {
         }
         onOpen?()
     }
+
+    @objc private func settingsClicked() { onSettings?() }
 
     var toggleFrame: CGRect? { toggleItem.button?.window?.frame }
 

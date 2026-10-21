@@ -25,6 +25,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var divider: Divider!
     private var hotKey: HotKey!
     private var dropdown: Dropdown!
+    private let settings = SettingsWindow()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // An accessory app with no windows is otherwise eligible to be quit by the system.
@@ -32,6 +33,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         divider = Divider()
         dropdown = Dropdown(divider: divider)
         divider.onOpen = { [weak self] in self?.dropdown.toggle() }
+        divider.onSettings = { [weak self] in self?.settings.show() }
         // `open build/Barkeep.app --args --request-capture` shows the Screen Recording prompt.
         if CommandLine.arguments.contains("--request-capture") { IconCapture.request() }
         if CommandLine.arguments.contains("--dump") {
