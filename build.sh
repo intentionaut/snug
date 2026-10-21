@@ -1,5 +1,7 @@
 #!/bin/zsh
-# Builds Barkeep.app into ./build. Sandboxed, no network entitlement, ad-hoc signed.
+# Builds Barkeep.app into ./build, signed with the Apple Development identity so macOS keeps the
+# Accessibility grant across rebuilds. Not sandboxed: a sandboxed app can't read or move other
+# apps' menu bar icons. Instead the build fails if the binary references any networking API.
 set -euo pipefail
 cd "${0:A:h}"
 
@@ -26,6 +28,6 @@ cat > "$app/Contents/Info.plist" <<'PLIST'
 </dict></plist>
 PLIST
 
-codesign --force --sign - --entitlements Barkeep.entitlements "$app"
-codesign -d --entitlements - "$app" 2>/dev/null | grep -q network && { echo "FAIL: network entitlement present"; exit 1; }
+./check-no-network.sh .build/release/Barkeep
+codesign --force --sign "Apple Development" "$app"
 echo "built $app"
