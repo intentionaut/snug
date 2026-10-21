@@ -1,12 +1,13 @@
 import AppKit
 
-/// The beard-and-bowtie menu bar icon (design/icon-options, option A), drawn as a template image
-/// so macOS tints it for light and dark menu bars. Filled means items are hidden; outline means showing.
-/// Coordinates are the app icon's 1024-unit space, cropped to the glyph.
+/// The menu bar icon, drawn as a solid template image so macOS tints it for light and dark bars.
+/// Items hidden: short boxed beard (design/icon-options, round 2 option 4).
+/// Items showing: full beard (round 2 option 1).
+/// Both share one frame in the app icon's 1024-unit space, so the icon never changes width.
 enum Glyph {
     private static let viewBox = CGRect(x: 240, y: 300, width: 544, height: 580)
 
-    static func image(filled: Bool) -> NSImage {
+    static func image(collapsed: Bool) -> NSImage {
         let height: CGFloat = 16
         let size = NSSize(width: height * viewBox.width / viewBox.height, height: height)
         let image = NSImage(size: size, flipped: true) { rect in
@@ -14,65 +15,58 @@ enum Glyph {
             let scale = rect.height / viewBox.height
             ctx.scaleBy(x: scale, y: scale)
             ctx.translateBy(x: -viewBox.minX, y: -viewBox.minY)
-            ctx.setLineJoin(.round)
-
-            if filled {
-                ctx.addPath(beard); ctx.fillPath()
-                // Cut a gap around the moustache so it separates from the beard.
-                ctx.setBlendMode(.clear)
-                ctx.setLineWidth(40)
-                ctx.addPath(moustache); ctx.strokePath()
-                ctx.setBlendMode(.normal)
-                ctx.addPath(moustache); ctx.fillPath()
-                ctx.addPath(bow); ctx.fillPath()
-                ctx.addPath(knot); ctx.fillPath()
+            if collapsed {
+                ctx.addPath(boxedBeard)
+                addBow(to: ctx, centreY: 730, size: 110)
             } else {
-                ctx.setLineWidth(30)
-                for path in [beard, moustache, bow] { ctx.addPath(path) }
-                ctx.strokePath()
+                ctx.addPath(fullBeard)
+                addBow(to: ctx, centreY: 770, size: 95)
             }
+            ctx.fillPath()
             return true
         }
         image.isTemplate = true
-        image.accessibilityDescription = filled ? "Show hidden items" : "Hide items"
+        image.accessibilityDescription = collapsed ? "Show hidden items" : "Hide items"
         return image
     }
 
-    private static let beard: CGPath = {
+    private static let fullBeard: CGPath = {
         let p = CGMutablePath()
         p.move(to: CGPoint(x: 300, y: 360))
         p.addQuadCurve(to: CGPoint(x: 512, y: 640), control: CGPoint(x: 300, y: 600))
         p.addQuadCurve(to: CGPoint(x: 724, y: 360), control: CGPoint(x: 724, y: 600))
-        p.addQuadCurve(to: CGPoint(x: 620, y: 510), control: CGPoint(x: 700, y: 500))
-        p.addQuadCurve(to: CGPoint(x: 512, y: 492), control: CGPoint(x: 560, y: 485))
-        p.addQuadCurve(to: CGPoint(x: 404, y: 510), control: CGPoint(x: 464, y: 485))
-        p.addQuadCurve(to: CGPoint(x: 300, y: 360), control: CGPoint(x: 324, y: 500))
+        p.addQuadCurve(to: CGPoint(x: 620, y: 480), control: CGPoint(x: 700, y: 470))
+        p.addLine(to: CGPoint(x: 404, y: 480))
+        p.addQuadCurve(to: CGPoint(x: 300, y: 360), control: CGPoint(x: 324, y: 470))
         p.closeSubpath()
         return p
     }()
 
-    private static let moustache: CGPath = {
+    private static let boxedBeard: CGPath = {
         let p = CGMutablePath()
-        p.move(to: CGPoint(x: 380, y: 500))
-        p.addQuadCurve(to: CGPoint(x: 512, y: 470), control: CGPoint(x: 450, y: 430))
-        p.addQuadCurve(to: CGPoint(x: 644, y: 500), control: CGPoint(x: 574, y: 430))
-        p.addQuadCurve(to: CGPoint(x: 512, y: 500), control: CGPoint(x: 590, y: 530))
-        p.addQuadCurve(to: CGPoint(x: 380, y: 500), control: CGPoint(x: 434, y: 530))
+        p.move(to: CGPoint(x: 300, y: 400))
+        p.addQuadCurve(to: CGPoint(x: 420, y: 490), control: CGPoint(x: 330, y: 480))
+        p.addLine(to: CGPoint(x: 604, y: 490))
+        p.addQuadCurve(to: CGPoint(x: 724, y: 400), control: CGPoint(x: 694, y: 480))
+        p.addLine(to: CGPoint(x: 724, y: 520))
+        p.addQuadCurve(to: CGPoint(x: 512, y: 610), control: CGPoint(x: 720, y: 600))
+        p.addQuadCurve(to: CGPoint(x: 300, y: 520), control: CGPoint(x: 304, y: 600))
         p.closeSubpath()
         return p
     }()
 
-    private static let bow: CGPath = {
-        let p = CGMutablePath()
+    /// Two wings meeting at the centre, plus a rounded knot.
+    private static func addBow(to ctx: CGContext, centreY y: CGFloat, size s: CGFloat) {
+        let x: CGFloat = 512
         for side: CGFloat in [-1, 1] {
-            p.move(to: CGPoint(x: 512, y: 770))
-            p.addLine(to: CGPoint(x: 512 + side * 152, y: 684.5))
-            p.addQuadCurve(to: CGPoint(x: 512 + side * 152, y: 855.5), control: CGPoint(x: 512 + side * 171, y: 770))
-            p.closeSubpath()
+            ctx.move(to: CGPoint(x: x, y: y))
+            ctx.addLine(to: CGPoint(x: x + side * 1.6 * s, y: y - 0.9 * s))
+            ctx.addQuadCurve(to: CGPoint(x: x + side * 1.6 * s, y: y + 0.9 * s), control: CGPoint(x: x + side * 1.8 * s, y: y))
+            ctx.closePath()
         }
-        return p
-    }()
-
-    private static let knot = CGPath(roundedRect: CGRect(x: 478.75, y: 727.25, width: 66.5, height: 85.5),
-                                     cornerWidth: 14.25, cornerHeight: 14.25, transform: nil)
+        // Fill the wings before adding the knot, or the overlap cancels out and leaves a hole.
+        ctx.fillPath()
+        ctx.addPath(CGPath(roundedRect: CGRect(x: x - 0.35 * s, y: y - 0.45 * s, width: 0.7 * s, height: 0.9 * s),
+                           cornerWidth: 0.15 * s, cornerHeight: 0.15 * s, transform: nil))
+    }
 }

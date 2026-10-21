@@ -109,6 +109,6 @@ final class Divider {
     }
 
     private func updateIcon() {
-        toggleItem.button?.image = Glyph.image(filled: isCollapsed)
+        toggleItem.button?.image = Glyph.image(collapsed: isCollapsed)
     }
 }
