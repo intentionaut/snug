@@ -1,6 +1,6 @@
 import AppKit
 
-/// The menu bar icon: a mousehole with a blanket drawn up (design/snug-options-2, F), the same in
+/// The menu bar icon: a mousehole with a blanket drawn up, the same in
 /// every state. Drawn on a 16-unit grid, so at 16 pt each unit is one point. Template image, so
 /// macOS tints it for light and dark menu bars.
 enum Glyph {

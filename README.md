@@ -2,7 +2,7 @@
 
 Your menu bar's backroom.
 
-Snug hides the menu bar icons you don't need to see. Click the beard (or press ⌃⌥⌘B) for a dropdown with three rows: Showing, Hidden and Always hidden. Click an icon to use it; drag it to another row to move it.
+Snug hides the menu bar icons you don't need to see. Click the mousehole (or press ⌃⌥⌘B) for a dropdown with three rows: Showing, Hidden and Always hidden. Click an icon to use it; drag it to another row to move it.
 
 Everything stays on your Mac. The build fails if the app references any networking API (`check-no-network.sh`).
 

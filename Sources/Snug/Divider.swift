@@ -2,8 +2,8 @@ import AppKit
 import os
 
 /// Three status items, left to right: an always-hidden divider (‖), the divider (│) and the
-/// beard. Collapsing stretches a divider so everything left of it is pushed off screen.
-/// Clicking the beard opens the dropdown; hidden icons are revealed only to use or move one.
+/// mousehole. Collapsing stretches a divider so everything left of it is pushed off screen.
+/// Clicking the mousehole opens the dropdown; hidden icons are revealed only to use or move one.
 final class Divider {
     static let rehideDelayKey = "rehideDelay"
     static let defaultRehideDelay: TimeInterval = 5

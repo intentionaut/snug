@@ -2,7 +2,7 @@ import AppKit
 import SwiftUI
 import os
 
-/// The dropdown under the beard: every menu bar icon in three rows (Showing, Hidden, Always hidden).
+/// The dropdown under the mousehole: every menu bar icon in three rows (Showing, Hidden, Always hidden).
 /// Click an icon to use it; drag it to another row to move it in the menu bar.
 /// The menu bar itself stays collapsed; hidden icons are only shown for a moment when used or moved.
 final class Dropdown: NSObject {
@@ -18,7 +18,7 @@ final class Dropdown: NSObject {
         model = DropdownModel(divider: divider)
         super.init()
         model.close = { [weak self] in self?.close() }
-        // Content arrives after opening; keep the panel pinned under the beard as it grows.
+        // Content arrives after opening; keep the panel pinned under the mousehole as it grows.
         model.relayout = { [weak self] in
             guard let self, let panel = self.panel, panel.isVisible else { return }
             self.position(panel)
@@ -85,7 +85,7 @@ final class Dropdown: NSObject {
         return panel
     }
 
-    /// Right edge under the beard, top edge just below the menu bar.
+    /// Right edge under the mousehole, top edge just below the menu bar.
     private func position(_ panel: NSPanel) {
         // Ask SwiftUI directly: a hosting view's fittingSize comes back 0 × 0 for this content.
         guard let size = hosting?.sizeThatFits(in: NSSize(width: 440, height: 900)), size.width > 0, size.height > 0 else {
