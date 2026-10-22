@@ -220,7 +220,7 @@ final class DropdownModel: ObservableObject {
 
     private func sort(_ items: [MenuBarItem], divider d: CGRect?, always a: CGRect?, recording: Bool, then done: (() -> Void)? = nil) {
         guard let d, let a else { return }
-        // Window-server positions, as Ice and Thaw use: off-screen icons keep their real order.
+        // Window-server positions: off-screen icons keep their real order.
         _ = recording
         sections = Dictionary(grouping: items) { MenuBarItems.section(of: $0, divider: d, always: a) }
         if restoring.isEmpty, !busy, recording {

@@ -1,7 +1,7 @@
 import AppKit
 import os
 
-/// Moves menu bar icons the way Ice and Thaw do, reimplemented here (their code is GPL-3.0).
+/// Moves menu bar icons by addressing events to the icon's own window.
 ///
 /// Nothing is dragged across the screen and nothing is revealed first. Snug sends a mouse-down
 /// and a mouse-up addressed to the icon's own window, delivered to the app that owns the icon,
@@ -13,7 +13,7 @@ import os
 enum ItemMover {
     private static let log = Logger(subsystem: "com.intentionaut.snug", category: "mover")
     private static let statusLayer = Int(CGWindowLevelForKey(.statusWindow))
-    /// The raw "window ID" event field; Ice and Thaw both find moves more reliable with it set.
+    /// The raw "window ID" event field; moves are more reliable with it set.
     private static let windowIDField = CGEventField(rawValue: 0x33)!
 
     enum Destination {
