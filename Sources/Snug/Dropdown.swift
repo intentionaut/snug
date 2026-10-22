@@ -106,6 +106,10 @@ final class DropdownModel: ObservableObject {
     @Published var busy = false
     @Published var loading = false
     @Published var images: [String: NSImage] = [:]
+    /// Each icon's section as last seen with every divider narrow. Off-screen positions are
+    /// meaningless once the dividers stretch (macOS parks hidden icons on either side of ‖),
+    /// so sections are only ever decided from a fully shown menu bar.
+    private var arrangement: [String: Section] = [:]
     @Published var canCapture = IconCapture.isAllowed
     @Published var captureRequested = false
     var close: (() -> Void)?
@@ -145,18 +149,28 @@ final class DropdownModel: ObservableObject {
         // Take the dividers' positions from the same moment as the icons'; comparing an old read
         // with dividers that have since collapsed sorted Tailscale into the wrong section.
         let frames = (divider.dividerFrame, divider.alwaysFrame)
+        let shown = (frames.0?.width ?? .infinity) < 200 && (frames.1?.width ?? .infinity) < 200
         DispatchQueue.global(qos: .userInitiated).async {
-            let items = MenuBarItems.read()
+            // A fully shown bar may still be settling (at launch); wait for it, since this read decides sections.
+            let items = shown ? MenuBarItems.readSettled() : MenuBarItems.read()
             DispatchQueue.main.async {
                 self.loading = false
-                self.sort(items, divider: frames.0, always: frames.1, then: done)
+                // If a divider changed width during the read, the icons and dividers are from
+                // different moments: sort from what's remembered, record nothing.
+                let unchanged = self.divider.dividerFrame == frames.0 && self.divider.alwaysFrame == frames.1
+                self.sort(items, divider: frames.0, always: frames.1, recording: unchanged, then: done)
             }
         }
     }
 
-    private func sort(_ items: [MenuBarItem], divider d: CGRect?, always a: CGRect?, then done: (() -> Void)? = nil) {
+    private func sort(_ items: [MenuBarItem], divider d: CGRect?, always a: CGRect?, recording: Bool, then done: (() -> Void)? = nil) {
         guard let d, let a else { return }
-        sections = Dictionary(grouping: items) { MenuBarItems.section(of: $0, divider: d, always: a) }
+        if recording { record(items, divider: d, always: a) }
+        sections = Dictionary(grouping: items) { item in
+            // Right of │ is on screen, so that is always reliable. Left of it, only a remembered
+            // fully shown read can say which side of ‖ an icon is on.
+            item.frame.midX > d.maxX ? .showing : (arrangement[item.id].flatMap { $0 == .showing ? nil : $0 } ?? .hidden)
+        }
         DispatchQueue.main.async { self.relayout?() }
         canCapture = IconCapture.isAllowed
         guard canCapture else { done?(); return }
@@ -177,8 +191,17 @@ final class DropdownModel: ObservableObject {
     }
 
     private func section(of item: MenuBarItem) -> Section? {
+        if let known = arrangement[item.id] { return known }
         guard let d = divider.dividerFrame, let a = divider.alwaysFrame else { return nil }
         return MenuBarItems.section(of: item, divider: d, always: a)
+    }
+
+    /// Remembers sections from this read, but only if both dividers were narrow when it was taken.
+    private func record(_ items: [MenuBarItem], divider d: CGRect, always a: CGRect) {
+        guard d.width < 200, a.width < 200 else { return }
+        for item in items { arrangement[item.id] = MenuBarItems.section(of: item, divider: d, always: a) }
+        let always = items.filter { arrangement[$0.id] == .always }.map { "\($0.name)@\(Int($0.frame.minX))" }
+        Self.log.notice("recorded \(items.count, privacy: .public) icons, ‖ \(Int(a.minX), privacy: .public)–\(Int(a.maxX), privacy: .public); always hidden: \(always.joined(separator: ", "), privacy: .public)")
     }
 
     /// Clicks the real icon. A hidden one is shown only until its menu closes; the click fires as
@@ -238,6 +261,7 @@ final class DropdownModel: ObservableObject {
                     return self.finish("Couldn't find \(item.name) in the menu bar.")
                 }
                 // Decide where it is now, from this read and these dividers, never the panel's last read.
+                self.record(fresh, divider: d, always: a)
                 let current = MenuBarItems.section(of: live, divider: d, always: a)
                 Self.log.notice("move \(item.name, privacy: .public): live x=\(live.frame.minX, privacy: .public) is \(current.rawValue, privacy: .public), target \(target.rawValue, privacy: .public); ‖ \(a.minX, privacy: .public)–\(a.maxX, privacy: .public), │ \(d.minX, privacy: .public)–\(d.maxX, privacy: .public); icons \(fresh.filter { $0.frame.minX > 0 && $0.frame.minX < a.maxX + 200 }.map { "\($0.name.prefix(10))@\(Int($0.frame.minX))" }.joined(separator: " "), privacy: .public)")
                 guard current != target else { return self.finish(nil) }
@@ -259,10 +283,8 @@ final class DropdownModel: ObservableObject {
                     let landedAt = after.first { $0.id == id }?.frame.minX ?? -1
                     Self.log.notice("after drag: \(item.name, privacy: .public) at x=\(landedAt, privacy: .public), target x=\(x, privacy: .public)")
                     DispatchQueue.main.async {
-                        let landed = after.first { $0.id == id }.flatMap { moved -> Section? in
-                            guard let d = self.divider.dividerFrame, let a = self.divider.alwaysFrame else { return nil }
-                            return MenuBarItems.section(of: moved, divider: d, always: a)
-                        }
+                        if let d = self.divider.dividerFrame, let a = self.divider.alwaysFrame { self.record(after, divider: d, always: a) }
+                        let landed = after.first { $0.id == id }.flatMap { self.arrangement[$0.id] }
                         if landed == target { return self.finish(nil) }
                         // The icon right beside the notch won't start a drag. If it is the last icon
                         // before ‖, moving ‖ to its left has the same effect.
