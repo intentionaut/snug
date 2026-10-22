@@ -37,6 +37,14 @@ final class Dropdown: NSObject {
 
     func testMove(named name: String, to target: Section) { model.testMove(named: name, to: target) }
 
+    /// Diagnostic: clicks the first icon whose name contains `name`, as the panel would.
+    func testUse(named name: String) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [model] in
+            guard let item = model.sections.values.joined().first(where: { $0.name.localizedCaseInsensitiveContains(name) }) else { return }
+            model.use(item.id)
+        }
+    }
+
     func open() {
         let panel = self.panel ?? makePanel()
         self.panel = panel
@@ -108,12 +116,63 @@ final class DropdownModel: ObservableObject {
     @Published var images: [String: NSImage] = [:]
     @Published var canCapture = IconCapture.isAllowed
     @Published var captureRequested = false
+    /// Each icon's section as the person last left it, so a relaunched app's icon can be put back.
+    private var saved: [String: String] {
+        get { UserDefaults.standard.dictionary(forKey: "savedSections") as? [String: String] ?? [:] }
+        set { UserDefaults.standard.set(newValue, forKey: "savedSections") }
+    }
+    /// Apps that launched recently: their icons may be in macOS's default spot, not where they were left.
+    private var restoring = Set<pid_t>()
     var close: (() -> Void)?
     var relayout: (() -> Void)?
     private let divider: Divider
     private var trustPoll: Timer?
 
-    init(divider: Divider) { self.divider = divider }
+    init(divider: Divider) {
+        self.divider = divider
+        NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.didLaunchApplicationNotification, object: nil, queue: .main) { [weak self] note in
+            guard let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication else { return }
+            self?.restoreIcons(of: app.processIdentifier)
+        }
+    }
+
+    /// When an app launches, macOS may put its icon back in its default spot. Wait for the icon
+    /// to appear, then move it to the section it was in. Only relaunched apps are touched, so a
+    /// person's own ⌘-drags are never undone.
+    private func restoreIcons(of pid: pid_t) {
+        restoring.insert(pid)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
+            guard let dWin = self.divider.dividerWindow, let aWin = self.divider.alwaysWindow else {
+                self.restoring.remove(pid); return
+            }
+            let saved = self.saved
+            DispatchQueue.global(qos: .utility).async {
+                let frames = ItemMover.windowFrames()
+                let mine = MenuBarItems.read().filter { $0.pid == pid }
+                for item in mine {
+                    guard let want = saved[item.id].flatMap(Section.init(rawValue:)),
+                          let window = ItemMover.window(for: item, in: frames),
+                          let d = frames[dWin], let a = frames[aWin] else { continue }
+                    let now = MenuBarItems.section(of: item, divider: d, always: a)
+                    guard now != want else { continue }
+                    let ok = ItemMover.move(item, window: window, to: Self.destination(from: now, to: want, divider: dWin, always: aWin))
+                    Self.log.notice("restored \(item.name, privacy: .public) to \(want.rawValue, privacy: .public): \(ok, privacy: .public)")
+                }
+                DispatchQueue.main.async {
+                    self.restoring.remove(pid)
+                    self.load()
+                }
+            }
+        }
+    }
+
+    static func destination(from current: Section, to target: Section, divider dWin: CGWindowID, always aWin: CGWindowID) -> ItemMover.Destination {
+        switch target {
+        case .showing: return .rightOf(dWin)
+        case .hidden: return current == .showing ? .leftOf(dWin) : .rightOf(aWin)
+        case .always: return .leftOf(aWin)
+        }
+    }
 
     func opened() {
         status = nil
@@ -164,6 +223,11 @@ final class DropdownModel: ObservableObject {
         // Window-server positions, as Ice and Thaw use: off-screen icons keep their real order.
         _ = recording
         sections = Dictionary(grouping: items) { MenuBarItems.section(of: $0, divider: d, always: a) }
+        if restoring.isEmpty, !busy, recording {
+            var next = saved
+            for (section, list) in sections { for item in list { next[item.id] = section.rawValue } }
+            saved = next
+        }
         DispatchQueue.main.async { self.relayout?() }
         canCapture = IconCapture.isAllowed
         guard canCapture else { done?(); return }
@@ -188,27 +252,61 @@ final class DropdownModel: ObservableObject {
         return MenuBarItems.section(of: item, divider: d, always: a)
     }
 
-    /// Clicks the real icon. A hidden one is shown only until its menu closes; the click fires as
-    /// soon as the icon is back on screen rather than after a fixed wait.
+    /// Clicks the real icon. A hidden one is moved, on its own, just right of │ so it is on screen,
+    /// clicked, then put back beside its old neighbour once its menu closes. Nothing else moves.
     func use(_ id: String) {
         guard !busy, let item = sections.values.joined().first(where: { $0.id == id }) else { return }
         let current = section(of: item)
         close?()
         let started = Date()
-        if current != .showing { divider.reveal(includeAlways: current == .always, rehideAfter: 1) }
-        let screen = NSScreen.screens.first?.frame ?? .zero
-        DispatchQueue.global(qos: .userInitiated).async {
-            var live: MenuBarItem?
-            for _ in 0..<20 {
-                live = MenuBarItems.readKnown().first { $0.id == id }
-                if let x = live?.frame.minX, x >= screen.minX, x < screen.maxX { break }
-                Thread.sleep(forTimeInterval: 0.03)
+        guard current != .showing else {
+            return DispatchQueue.global(qos: .userInitiated).async {
+                guard let live = MenuBarItems.readKnown().first(where: { $0.id == id }) else { return }
+                MenuBarItems.click(live)
+                Self.log.notice("clicked \(item.name, privacy: .public) in \(Date().timeIntervalSince(started), privacy: .public)s")
             }
-            guard let live else { return }
-            MenuBarItems.click(live)
-            // It's on screen now, so refresh its picture.
-            DispatchQueue.main.async { self.load() }
-            Self.log.notice("clicked \(item.name, privacy: .public) \(Date().timeIntervalSince(started), privacy: .public)s after the press")
+        }
+        guard let dWin = divider.dividerWindow else { return }
+        busy = true
+        DispatchQueue.global(qos: .userInitiated).async {
+            let frames = ItemMover.windowFrames()
+            guard let live = MenuBarItems.readKnown().first(where: { $0.id == id }),
+                  let window = ItemMover.window(for: live, in: frames),
+                  let own = frames[window] else {
+                return DispatchQueue.main.async { self.busy = false }
+            }
+            // Its neighbour on the right is where it goes back to.
+            let neighbour = frames.filter { $0.key != window && $0.value.minX >= own.maxX - 1 }
+                .min { $0.value.minX < $1.value.minX }?.key
+            guard ItemMover.move(live, window: window, to: .rightOf(dWin)),
+                  let shown = MenuBarItems.readKnown().first(where: { $0.id == id }) else {
+                return DispatchQueue.main.async { self.busy = false; self.status = "Couldn't open \(item.name)." }
+            }
+            MenuBarItems.click(shown)
+            Self.log.notice("clicked \(item.name, privacy: .public) in \(Date().timeIntervalSince(started), privacy: .public)s")
+            DispatchQueue.main.async {
+                self.busy = false
+                // Refresh its picture while it's on screen.
+                self.load()
+                if let neighbour { self.putBack(id, window: window, leftOf: neighbour) }
+            }
+        }
+    }
+
+    /// Waits for the icon's menu to close (two quiet checks, at least a second), then moves it back.
+    private func putBack(_ id: String, window: CGWindowID, leftOf neighbour: CGWindowID) {
+        var quiet = 0
+        let started = Date()
+        Timer.scheduledTimer(withTimeInterval: 0.3, repeats: true) { timer in
+            quiet = Divider.menuIsOpen() || NSEvent.pressedMouseButtons != 0 ? 0 : quiet + 1
+            guard quiet >= 2, Date().timeIntervalSince(started) > 1, !self.busy else { return }
+            timer.invalidate()
+            DispatchQueue.global(qos: .userInitiated).async {
+                guard let live = MenuBarItems.readKnown().first(where: { $0.id == id }) else { return }
+                let back = ItemMover.move(live, window: window, to: .leftOf(neighbour))
+                Self.log.notice("put back \(live.name, privacy: .public): \(back ? "done" : "failed", privacy: .public)")
+                DispatchQueue.main.async { self.load() }
+            }
         }
     }
 
@@ -248,12 +346,7 @@ final class DropdownModel: ObservableObject {
             let current = MenuBarItems.section(of: live, divider: d, always: a)
             Self.log.notice("move \(item.name, privacy: .public): \(current.rawValue, privacy: .public) → \(target.rawValue, privacy: .public)")
             guard current != target else { return DispatchQueue.main.async { self.finish(nil) } }
-            let destination: ItemMover.Destination
-            switch target {
-            case .showing: destination = .rightOf(dWin)
-            case .hidden: destination = current == .showing ? .leftOf(dWin) : .rightOf(aWin)
-            case .always: destination = .leftOf(aWin)
-            }
+            let destination = Self.destination(from: current, to: target, divider: dWin, always: aWin)
             let moved = ItemMover.move(live, window: window, to: destination)
             Self.log.notice("move \(item.name, privacy: .public): \(moved ? "done" : "failed", privacy: .public) in \(Date().timeIntervalSince(started), privacy: .public)s")
             DispatchQueue.main.async {

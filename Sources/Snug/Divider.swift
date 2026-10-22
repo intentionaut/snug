@@ -25,6 +25,12 @@ final class Divider {
     private(set) var isArranging = false
     var onOpen: (() -> Void)?
     var onSettings: (() -> Void)?
+    /// Opens the dropdown if it isn't already open: hovering on the mousehole, or scrolling in the menu bar.
+    var onReveal: (() -> Void)?
+    static let openOnHoverKey = "openOnHover"
+    static let openOnScrollKey = "openOnScroll"
+    private var hover: HoverTarget?
+    private var scrollMonitors: [Any] = []
 
     init() {
         // Items created later sit further left, so the toggle goes first.
@@ -49,6 +55,27 @@ final class Divider {
         menu.addItem(.separator())
         menu.addItem(withTitle: "Quit Snug", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         toggleItem.button?.sendAction(on: [.leftMouseUp, .rightMouseUp])
+
+        UserDefaults.standard.register(defaults: [Self.openOnHoverKey: true, Self.openOnScrollKey: true])
+        if let button = toggleItem.button {
+            let target = HoverTarget { [weak self] in
+                guard UserDefaults.standard.bool(forKey: Self.openOnHoverKey) else { return }
+                self?.onReveal?()
+            }
+            button.addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect],
+                                                  owner: target, userInfo: nil))
+            hover = target
+        }
+        // Scrolling anywhere on the menu bar opens it. A global monitor sees other apps' bar;
+        // a local one sees scrolls over Snug's own icons.
+        let scrolled: (NSEvent) -> Void = { [weak self] event in
+            guard UserDefaults.standard.bool(forKey: Self.openOnScrollKey), abs(event.scrollingDeltaY) > 1 else { return }
+            let point = NSEvent.mouseLocation
+            guard let screen = NSScreen.screens.first(where: { $0.frame.contains(point) }), point.y >= screen.visibleFrame.maxY else { return }
+            self?.onReveal?()
+        }
+        if let global = NSEvent.addGlobalMonitorForEvents(matching: .scrollWheel, handler: scrolled) { scrollMonitors.append(global) }
+        if let local = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel, handler: { scrolled($0); return $0 }) { scrollMonitors.append(local) }
 
         clickMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] _ in
             self?.clickedElsewhere()
@@ -164,7 +191,7 @@ final class Divider {
 
     /// True while any app has a menu open, so a revealed icon isn't pulled away from under its menu.
     /// Window layers and owners are readable without Screen Recording; only titles need it.
-    private static func menuIsOpen() -> Bool {
+    static func menuIsOpen() -> Bool {
         let windows = CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID) as? [[String: Any]] ?? []
         let menuLevel = Int(CGWindowLevelForKey(.popUpMenuWindow))
         return windows.contains { ($0[kCGWindowLayer as String] as? Int) == menuLevel }
@@ -186,5 +213,28 @@ final class Divider {
 
     private func updateIcon() {
         toggleItem.button?.image = Glyph.image(collapsed: isCollapsed)
+    }
+}
+
+/// Receives the mousehole's hover events; opens after a short rest so passing over doesn't trigger it.
+private final class HoverTarget: NSResponder {
+    private let action: () -> Void
+    private var pending: DispatchWorkItem?
+
+    init(action: @escaping () -> Void) {
+        self.action = action
+        super.init()
+    }
+
+    required init?(coder: NSCoder) { nil }
+
+    override func mouseEntered(with event: NSEvent) {
+        let work = DispatchWorkItem { [action] in action() }
+        pending = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35, execute: work)
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        pending?.cancel()
     }
 }

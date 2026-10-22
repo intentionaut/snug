@@ -36,12 +36,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         dropdown = Dropdown(divider: divider)
         divider.onOpen = { [weak self] in self?.dropdown.toggle() }
         divider.onSettings = { [weak self] in self?.settings.show() }
+        divider.onReveal = { [weak self] in
+            guard let self, !self.dropdown.isOpen else { return }
+            self.dropdown.open()
+        }
         // `open build/Snug.app --args --request-capture` shows the Screen Recording prompt.
         if CommandLine.arguments.contains("--request-capture") { IconCapture.request() }
         // `open ~/Applications/Snug.app --args --settings` opens the settings window.
         if CommandLine.arguments.contains("--settings") { settings.show() }
         // `--test-move <name> <Showing|Hidden|Always hidden>` moves that icon; results in the log.
         let args = CommandLine.arguments
+        // `--test-use <name>` clicks that icon the way the panel does.
+        if let i = args.firstIndex(of: "--test-use"), i + 1 < args.count { dropdown.testUse(named: args[i + 1]) }
         if let i = args.firstIndex(of: "--test-move"), i + 2 < args.count, let target = Section(rawValue: args[i + 2]) {
             dropdown.testMove(named: args[i + 1], to: target)
         }

@@ -23,6 +23,8 @@ final class SettingsWindow {
 
 private struct SettingsView: View {
     @AppStorage(Divider.rehideDelayKey) private var rehideDelay = Divider.defaultRehideDelay
+    @AppStorage(Divider.openOnHoverKey) private var openOnHover = true
+    @AppStorage(Divider.openOnScrollKey) private var openOnScroll = true
     @State private var launchAtLogin = SMAppService.mainApp.status == .enabled
     @State private var loginError: String?
 
@@ -36,6 +38,8 @@ private struct SettingsView: View {
             Stepper(value: $rehideDelay, in: 2...30, step: 1) {
                 Text("Re-hide after \(Int(rehideDelay)) seconds")
             }
+            Toggle("Open when the pointer rests on the mousehole", isOn: $openOnHover)
+            Toggle("Open when you scroll on the menu bar", isOn: $openOnScroll)
             LabeledContent("Shortcut", value: "⌃⌥⌘B")
             SwiftUI.Section("Permissions") {
                 LabeledContent("Accessibility", value: MenuBarItems.isTrusted ? "On" : "Off")
