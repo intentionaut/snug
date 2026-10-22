@@ -47,6 +47,19 @@ enum MenuBarItems {
         return all
     }
 
+    /// Reads until two reads in a row agree. The menu bar animates after a divider changes width
+    /// or an icon is dropped, and a read mid-animation puts icons on the wrong side of a divider.
+    static func readSettled() -> [MenuBarItem] {
+        var last = read()
+        for _ in 0..<12 {
+            Thread.sleep(forTimeInterval: 0.15)
+            let next = read()
+            if next.map(\.frame) == last.map(\.frame) { return next }
+            last = next
+        }
+        return last
+    }
+
     private static func items(of app: NSRunningApplication) -> [MenuBarItem] {
         let appElement = AXUIElementCreateApplication(app.processIdentifier)
         AXUIElementSetMessagingTimeout(appElement, 0.25)
@@ -64,9 +77,11 @@ enum MenuBarItems {
     }
 
     /// Which section an icon is in, from where it sits relative to the two dividers.
+    /// Compares against each divider's right edge: a collapsed divider stretches thousands of points
+    /// to the left, so its middle says nothing about which side an icon is on.
     static func section(of item: MenuBarItem, divider: CGRect, always: CGRect) -> Section {
-        if item.frame.midX > divider.midX { return .showing }
-        if item.frame.midX > always.midX { return .hidden }
+        if item.frame.midX > divider.maxX { return .showing }
+        if item.frame.midX > always.maxX { return .hidden }
         return .always
     }
 
@@ -87,13 +102,17 @@ enum MenuBarItems {
         post(.mouseMoved, start)
         Thread.sleep(forTimeInterval: 0.05)
         post(.leftMouseDown, start)
-        Thread.sleep(forTimeInterval: 0.08)
-        let steps = 12
+        // Hold before moving, so the menu bar treats it as a drag rather than a click.
+        Thread.sleep(forTimeInterval: 0.2)
+        // About 4 pt per step: the menu bar reorders icons as the pointer passes each one, and
+        // skips any it jumps over. A long drag at 12 steps moved nothing.
+        let steps = max(12, Int(abs(end.x - start.x) / 4))
         for step in 1...steps {
             let t = CGFloat(step) / CGFloat(steps)
             post(.leftMouseDragged, CGPoint(x: start.x + (end.x - start.x) * t, y: start.y))
-            Thread.sleep(forTimeInterval: 0.02)
+            Thread.sleep(forTimeInterval: 0.012)
         }
+        Thread.sleep(forTimeInterval: 0.1)
         post(.leftMouseUp, end)
         Thread.sleep(forTimeInterval: 0.25)
         if let restore { CGWarpMouseCursorPosition(restore) }

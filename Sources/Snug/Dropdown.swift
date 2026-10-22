@@ -35,6 +35,8 @@ final class Dropdown: NSObject {
 
     func toggle() { isOpen ? close() : open() }
 
+    func testMove(named name: String, to target: Section) { model.testMove(named: name, to: target) }
+
     func open() {
         let panel = self.panel ?? makePanel()
         self.panel = panel
@@ -140,17 +142,20 @@ final class DropdownModel: ObservableObject {
     func load(then done: (() -> Void)? = nil) {
         guard !loading else { return }
         loading = true
+        // Take the dividers' positions from the same moment as the icons'; comparing an old read
+        // with dividers that have since collapsed sorted Tailscale into the wrong section.
+        let frames = (divider.dividerFrame, divider.alwaysFrame)
         DispatchQueue.global(qos: .userInitiated).async {
             let items = MenuBarItems.read()
             DispatchQueue.main.async {
                 self.loading = false
-                self.sort(items, then: done)
+                self.sort(items, divider: frames.0, always: frames.1, then: done)
             }
         }
     }
 
-    private func sort(_ items: [MenuBarItem], then done: (() -> Void)? = nil) {
-        guard let d = divider.dividerFrame, let a = divider.alwaysFrame else { return }
+    private func sort(_ items: [MenuBarItem], divider d: CGRect?, always a: CGRect?, then done: (() -> Void)? = nil) {
+        guard let d, let a else { return }
         sections = Dictionary(grouping: items) { MenuBarItems.section(of: $0, divider: d, always: a) }
         DispatchQueue.main.async { self.relayout?() }
         canCapture = IconCapture.isAllowed
@@ -200,20 +205,42 @@ final class DropdownModel: ObservableObject {
         }
     }
 
+    /// Diagnostic: moves the first icon whose name contains `name` to `target`, logging the result.
+    func testMove(named name: String, to target: Section) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
+            guard let item = self.sections.values.joined().first(where: { $0.name.localizedCaseInsensitiveContains(name) }) else {
+                return Self.log.error("test-move: no icon named \(name, privacy: .public)")
+            }
+            Self.log.notice("test-move: \(item.name, privacy: .public) to \(target.rawValue, privacy: .public)")
+            self.move(item.id, to: target)
+            // Report once the move has finished.
+            Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { timer in
+                guard !self.busy else { return }
+                timer.invalidate()
+                Self.log.notice("test-move: done, status: \(self.status ?? "ok", privacy: .public)")
+            }
+        }
+    }
+
     /// Moves an icon between rows: shows everything, does the ⌘-drag, checks it landed, re-hides.
     func move(_ id: String, to target: Section) {
-        guard !busy, let item = sections.values.joined().first(where: { $0.id == id }),
-              let current = section(of: item), current != target else { return }
+        let item = sections.values.joined().first { $0.id == id }
+        Self.log.notice("drop \(id, privacy: .public) on \(target.rawValue, privacy: .public): found=\(item != nil, privacy: .public) busy=\(self.busy, privacy: .public)")
+        guard !busy, let item else { return }
         busy = true
         status = "Moving \(item.name)…"
         divider.beginArranging()
-        DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + 0.4) {
-            let fresh = MenuBarItems.read()
+        DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + 0.2) {
+            let fresh = MenuBarItems.readSettled()
             DispatchQueue.main.async {
                 guard let live = fresh.first(where: { $0.id == id }),
                       let d = self.divider.dividerFrame, let a = self.divider.alwaysFrame else {
                     return self.finish("Couldn't find \(item.name) in the menu bar.")
                 }
+                // Decide where it is now, from this read and these dividers, never the panel's last read.
+                let current = MenuBarItems.section(of: live, divider: d, always: a)
+                Self.log.notice("move \(item.name, privacy: .public): live x=\(live.frame.minX, privacy: .public) is \(current.rawValue, privacy: .public), target \(target.rawValue, privacy: .public); ‖ \(a.minX, privacy: .public)–\(a.maxX, privacy: .public), │ \(d.minX, privacy: .public)–\(d.maxX, privacy: .public); icons \(fresh.filter { $0.frame.minX > 0 && $0.frame.minX < a.maxX + 200 }.map { "\($0.name.prefix(10))@\(Int($0.frame.minX))" }.joined(separator: " "), privacy: .public)")
+                guard current != target else { return self.finish(nil) }
                 if let reason = Self.offScreenReason(live) {
                     return self.finish("Couldn't move \(item.name): \(reason).")
                 }
@@ -226,12 +253,49 @@ final class DropdownModel: ObservableObject {
                 }
                 DispatchQueue.global(qos: .userInitiated).async {
                     MenuBarItems.drag(live, toX: x)
-                    let after = MenuBarItems.read()
+                    // The menu bar slides icons into place after the drop; reading too soon
+                    // reported real moves as failures. Re-read until positions stop changing.
+                    let after = MenuBarItems.readSettled()
+                    let landedAt = after.first { $0.id == id }?.frame.minX ?? -1
+                    Self.log.notice("after drag: \(item.name, privacy: .public) at x=\(landedAt, privacy: .public), target x=\(x, privacy: .public)")
                     DispatchQueue.main.async {
-                        let landed = after.first { $0.id == id }.flatMap(self.section(of:))
-                        self.finish(landed == target ? nil : "Couldn't move \(item.name). Try again, or ⌘-drag it by hand.")
+                        let landed = after.first { $0.id == id }.flatMap { moved -> Section? in
+                            guard let d = self.divider.dividerFrame, let a = self.divider.alwaysFrame else { return nil }
+                            return MenuBarItems.section(of: moved, divider: d, always: a)
+                        }
+                        if landed == target { return self.finish(nil) }
+                        // The icon right beside the notch won't start a drag. If it is the last icon
+                        // before ‖, moving ‖ to its left has the same effect.
+                        let lastBeforeAlways = fresh.filter { $0.frame.maxX <= a.minX + 1 }.max { $0.frame.minX < $1.frame.minX }
+                        if target == .hidden, current == .always, lastBeforeAlways?.id == id {
+                            Self.log.notice("fallback: moving ‖ left of \(item.name, privacy: .public)")
+                            return self.moveAlwaysDivider(toX: live.frame.minX + 2, then: { ok in
+                                self.finish(ok ? nil : "Couldn't move \(item.name). Try again, or ⌘-drag it by hand.")
+                            }, check: id)
+                        }
+                        self.finish("Couldn't move \(item.name). Try again, or ⌘-drag it by hand.")
                     }
                 }
+            }
+        }
+    }
+
+    /// Drags our own ‖ divider, then reports whether the icon `id` ended up in Hidden.
+    private func moveAlwaysDivider(toX x: CGFloat, then done: @escaping (Bool) -> Void, check id: String) {
+        guard let a = divider.alwaysFrame, let screen = NSScreen.screens.first else { return done(false) }
+        // Window frames are bottom-left origin; drags use top-left.
+        let topLeft = CGRect(x: a.minX, y: screen.frame.maxY - a.maxY, width: a.width, height: a.height)
+        let me = MenuBarItem(id: "snug.always", pid: ProcessInfo.processInfo.processIdentifier,
+                             name: "the always-hidden divider", icon: NSImage(), frame: topLeft)
+        // Off the main thread: AppKit handles our own item's drag here, and a sleeping main thread can't.
+        DispatchQueue.global(qos: .userInitiated).async {
+            MenuBarItems.drag(me, toX: x)
+            Thread.sleep(forTimeInterval: 0.6)
+            let after = MenuBarItems.read()
+            DispatchQueue.main.async {
+                guard let moved = after.first(where: { $0.id == id }),
+                      let d = self.divider.dividerFrame, let a = self.divider.alwaysFrame else { return done(false) }
+                done(MenuBarItems.section(of: moved, divider: d, always: a) == .hidden)
             }
         }
     }
@@ -325,7 +389,8 @@ private struct Row: View {
             Text(section.rawValue.uppercased()).font(.caption2.weight(.semibold)).foregroundStyle(.secondary)
             Flow(spacing: 2) {
                 ForEach(items) { item in
-                    Button { onUse(item.id) } label: {
+                    // A plain view with a tap gesture, not a Button: on macOS a Button swallows the drag.
+                    Group {
                         // The real icon at its menu bar size when captured; the app's Dock icon otherwise.
                         if let image = images[item.id] {
                             Image(nsImage: image).frame(width: image.size.width, height: image.size.height)
@@ -333,9 +398,10 @@ private struct Row: View {
                             Image(nsImage: item.icon).resizable().frame(width: 20, height: 20).padding(6)
                         }
                     }
-                    .buttonStyle(.plain)
+                    .contentShape(Rectangle())
+                    .onTapGesture { if !busy { onUse(item.id) } }
                     .help(item.name)
-                    .disabled(busy)
+                    .opacity(busy ? 0.5 : 1)
                     .draggable(item.id)
                 }
             }
