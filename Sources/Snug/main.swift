@@ -36,6 +36,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         divider.onSettings = { [weak self] in self?.settings.show() }
         // `open build/Snug.app --args --request-capture` shows the Screen Recording prompt.
         if CommandLine.arguments.contains("--request-capture") { IconCapture.request() }
+        // `open ~/Applications/Snug.app --args --settings` opens the settings window.
+        if CommandLine.arguments.contains("--settings") { settings.show() }
         if CommandLine.arguments.contains("--dump") {
             dump()
             DispatchQueue.main.asyncAfter(deadline: .now() + 3) { self.dropdown.open() }
