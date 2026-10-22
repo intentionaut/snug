@@ -29,12 +29,11 @@ final class Divider {
     init() {
         // Items created later sit further left, so the toggle goes first.
         toggleItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
-        // Autosave names predate the rename to Snug; macOS keeps icon positions under them.
-        toggleItem.autosaveName = "barkeep.toggle"
+        toggleItem.autosaveName = "snug.toggle"
         dividerItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-        dividerItem.autosaveName = "barkeep.divider"
+        dividerItem.autosaveName = "snug.divider"
         alwaysItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-        alwaysItem.autosaveName = "barkeep.always"
+        alwaysItem.autosaveName = "snug.always"
 
         if let button = toggleItem.button {
             button.target = self

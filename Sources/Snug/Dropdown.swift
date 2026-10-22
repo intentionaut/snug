@@ -251,7 +251,7 @@ final class DropdownModel: ObservableObject {
                   let screen = NSScreen.screens.first else { return self.finish(nil) }
             // Window frames are bottom-left origin; drags use top-left.
             let topLeft = CGRect(x: a.minX, y: screen.frame.maxY - a.maxY, width: a.width, height: a.height)
-            let me = MenuBarItem(id: "barkeep.always", pid: ProcessInfo.processInfo.processIdentifier,
+            let me = MenuBarItem(id: "snug.always", pid: ProcessInfo.processInfo.processIdentifier,
                                  name: "the always-hidden divider", icon: NSImage(), frame: topLeft)
             // Off the main thread: AppKit handles our own item's drag here, and a sleeping main thread can't.
             DispatchQueue.global(qos: .userInitiated).async {
