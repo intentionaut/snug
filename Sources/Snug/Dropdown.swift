@@ -106,10 +106,6 @@ final class DropdownModel: ObservableObject {
     @Published var busy = false
     @Published var loading = false
     @Published var images: [String: NSImage] = [:]
-    /// Each icon's section as last seen with every divider narrow. Off-screen positions are
-    /// meaningless once the dividers stretch (macOS parks hidden icons on either side of ‖),
-    /// so sections are only ever decided from a fully shown menu bar.
-    private var arrangement: [String: Section] = [:]
     @Published var canCapture = IconCapture.isAllowed
     @Published var captureRequested = false
     var close: (() -> Void)?
@@ -165,12 +161,9 @@ final class DropdownModel: ObservableObject {
 
     private func sort(_ items: [MenuBarItem], divider d: CGRect?, always a: CGRect?, recording: Bool, then done: (() -> Void)? = nil) {
         guard let d, let a else { return }
-        if recording { record(items, divider: d, always: a) }
-        sections = Dictionary(grouping: items) { item in
-            // Right of │ is on screen, so that is always reliable. Left of it, only a remembered
-            // fully shown read can say which side of ‖ an icon is on.
-            item.frame.midX > d.maxX ? .showing : (arrangement[item.id].flatMap { $0 == .showing ? nil : $0 } ?? .hidden)
-        }
+        // Window-server positions, as Ice and Thaw use: off-screen icons keep their real order.
+        _ = recording
+        sections = Dictionary(grouping: items) { MenuBarItems.section(of: $0, divider: d, always: a) }
         DispatchQueue.main.async { self.relayout?() }
         canCapture = IconCapture.isAllowed
         guard canCapture else { done?(); return }
@@ -191,17 +184,8 @@ final class DropdownModel: ObservableObject {
     }
 
     private func section(of item: MenuBarItem) -> Section? {
-        if let known = arrangement[item.id] { return known }
         guard let d = divider.dividerFrame, let a = divider.alwaysFrame else { return nil }
         return MenuBarItems.section(of: item, divider: d, always: a)
-    }
-
-    /// Remembers sections from this read, but only if both dividers were narrow when it was taken.
-    private func record(_ items: [MenuBarItem], divider d: CGRect, always a: CGRect) {
-        guard d.width < 200, a.width < 200 else { return }
-        for item in items { arrangement[item.id] = MenuBarItems.section(of: item, divider: d, always: a) }
-        let always = items.filter { arrangement[$0.id] == .always }.map { "\($0.name)@\(Int($0.frame.minX))" }
-        Self.log.notice("recorded \(items.count, privacy: .public) icons, ‖ \(Int(a.minX), privacy: .public)–\(Int(a.maxX), privacy: .public); always hidden: \(always.joined(separator: ", "), privacy: .public)")
     }
 
     /// Clicks the real icon. A hidden one is shown only until its menu closes; the click fires as
@@ -245,109 +229,42 @@ final class DropdownModel: ObservableObject {
         }
     }
 
-    /// Moves an icon between rows: shows everything, does the ⌘-drag, checks it landed, re-hides.
+    /// Moves an icon between rows with ItemMover: events addressed to the icon's window, nothing
+    /// revealed, positions from the window server. Works off screen and beside the notch.
     func move(_ id: String, to target: Section) {
         let item = sections.values.joined().first { $0.id == id }
         Self.log.notice("drop \(id, privacy: .public) on \(target.rawValue, privacy: .public): found=\(item != nil, privacy: .public) busy=\(self.busy, privacy: .public)")
-        guard !busy, let item else { return }
+        guard !busy, let item, let dWin = divider.dividerWindow, let aWin = divider.alwaysWindow else { return }
         busy = true
         status = "Moving \(item.name)…"
-        divider.beginArranging()
-        whenShown {
-          DispatchQueue.global(qos: .userInitiated).async {
-            let fresh = MenuBarItems.readSettled()
-            DispatchQueue.main.async {
-                guard let live = fresh.first(where: { $0.id == id }),
-                      let d = self.divider.dividerFrame, let a = self.divider.alwaysFrame else {
-                    return self.finish("Couldn't find \(item.name) in the menu bar.")
-                }
-                // Decide where it is now, from this read and these dividers, never the panel's last read.
-                self.record(fresh, divider: d, always: a)
-                let current = MenuBarItems.section(of: live, divider: d, always: a)
-                Self.log.notice("move \(item.name, privacy: .public): live x=\(live.frame.minX, privacy: .public) is \(current.rawValue, privacy: .public), target \(target.rawValue, privacy: .public); ‖ \(a.minX, privacy: .public)–\(a.maxX, privacy: .public), │ \(d.minX, privacy: .public)–\(d.maxX, privacy: .public); icons \(fresh.filter { $0.frame.minX > 0 && $0.frame.minX < a.maxX + 200 }.map { "\($0.name.prefix(10))@\(Int($0.frame.minX))" }.joined(separator: " "), privacy: .public)")
-                guard current != target else { return self.finish(nil) }
-                if let reason = Self.offScreenReason(live) {
-                    return self.finish("Couldn't move \(item.name): \(reason).")
-                }
-                // Drop just past the middle of the divider the icon has to cross.
-                let x: CGFloat
-                switch target {
-                case .showing: x = d.maxX - 2
-                case .hidden: x = current == .showing ? d.minX + 2 : a.maxX - 2
-                case .always: x = a.minX + 2
-                }
-                DispatchQueue.global(qos: .userInitiated).async {
-                    MenuBarItems.drag(live, toX: x)
-                    // The menu bar slides icons into place after the drop; reading too soon
-                    // reported real moves as failures. Re-read until positions stop changing.
-                    let after = MenuBarItems.readSettled()
-                    let landedAt = after.first { $0.id == id }?.frame.minX ?? -1
-                    Self.log.notice("after drag: \(item.name, privacy: .public) at x=\(landedAt, privacy: .public), target x=\(x, privacy: .public)")
-                    DispatchQueue.main.async {
-                        if let d = self.divider.dividerFrame, let a = self.divider.alwaysFrame { self.record(after, divider: d, always: a) }
-                        let landed = after.first { $0.id == id }.flatMap { self.arrangement[$0.id] }
-                        if landed == target { return self.finish(nil) }
-                        // The icon right beside the notch won't start a drag. If it is the last icon
-                        // before ‖, moving ‖ to its left has the same effect.
-                        let lastBeforeAlways = fresh.filter { $0.frame.maxX <= a.minX + 1 }.max { $0.frame.minX < $1.frame.minX }
-                        // Moving into Always hidden fails when ‖ is against the notch: there's no room
-                        // to its left. If the icon is the first after ‖, moving ‖ to its right does it.
-                        let firstAfterAlways = fresh.filter { $0.frame.minX >= a.maxX - 1 }.min { $0.frame.minX < $1.frame.minX }
-                        if target == .always, current == .hidden, firstAfterAlways?.id == id {
-                            Self.log.notice("fallback: moving ‖ right of \(item.name, privacy: .public)")
-                            return self.moveAlwaysDivider(toX: live.frame.maxX - 2, expect: .always, then: { ok in
-                                self.finish(ok ? nil : "Couldn't move \(item.name). Try again, or ⌘-drag it by hand.")
-                            }, check: id)
-                        }
-                        if target == .hidden, current == .always, lastBeforeAlways?.id == id {
-                            Self.log.notice("fallback: moving ‖ left of \(item.name, privacy: .public)")
-                            return self.moveAlwaysDivider(toX: live.frame.minX + 2, expect: .hidden, then: { ok in
-                                self.finish(ok ? nil : "Couldn't move \(item.name). Try again, or ⌘-drag it by hand.")
-                            }, check: id)
-                        }
-                        self.finish("Couldn't move \(item.name). Try again, or ⌘-drag it by hand.")
-                    }
-                }
-            }
-        }
-          }
-    }
-
-    /// Runs `then` once both dividers have actually narrowed. Changing a status item's width
-    /// takes effect a moment later; reading before that sees the collapsed layout.
-    private func whenShown(_ then: @escaping () -> Void) {
-        var waited = 0.0
-        Timer.scheduledTimer(withTimeInterval: 0.03, repeats: true) { timer in
-            waited += 0.03
-            let narrow = (self.divider.dividerFrame?.width ?? 0) < 200 && (self.divider.alwaysFrame?.width ?? 0) < 200
-            guard narrow || waited > 1.5 else { return }
-            timer.invalidate()
-            then()
-        }
-    }
-
-    /// Drags our own ‖ divider, then reports whether the icon `id` ended up in Hidden.
-    private func moveAlwaysDivider(toX x: CGFloat, expect: Section, then done: @escaping (Bool) -> Void, check id: String) {
-        guard let a = divider.alwaysFrame, let screen = NSScreen.screens.first else { return done(false) }
-        // Window frames are bottom-left origin; drags use top-left.
-        let topLeft = CGRect(x: a.minX, y: screen.frame.maxY - a.maxY, width: a.width, height: a.height)
-        let me = MenuBarItem(id: "snug.always", pid: ProcessInfo.processInfo.processIdentifier,
-                             name: "the always-hidden divider", icon: NSImage(), frame: topLeft)
-        // Off the main thread: AppKit handles our own item's drag here, and a sleeping main thread can't.
+        let started = Date()
         DispatchQueue.global(qos: .userInitiated).async {
-            MenuBarItems.drag(me, toX: x)
-            let after = MenuBarItems.readSettled()
+            let frames = ItemMover.windowFrames()
+            guard let live = MenuBarItems.readKnown().first(where: { $0.id == id }),
+                  let window = ItemMover.window(for: live, in: frames),
+                  let d = frames[dWin], let a = frames[aWin] else {
+                return DispatchQueue.main.async { self.finish("Couldn't find \(item.name) in the menu bar.") }
+            }
+            let current = MenuBarItems.section(of: live, divider: d, always: a)
+            Self.log.notice("move \(item.name, privacy: .public): \(current.rawValue, privacy: .public) → \(target.rawValue, privacy: .public)")
+            guard current != target else { return DispatchQueue.main.async { self.finish(nil) } }
+            let destination: ItemMover.Destination
+            switch target {
+            case .showing: destination = .rightOf(dWin)
+            case .hidden: destination = current == .showing ? .leftOf(dWin) : .rightOf(aWin)
+            case .always: destination = .leftOf(aWin)
+            }
+            let moved = ItemMover.move(live, window: window, to: destination)
+            Self.log.notice("move \(item.name, privacy: .public): \(moved ? "done" : "failed", privacy: .public) in \(Date().timeIntervalSince(started), privacy: .public)s")
             DispatchQueue.main.async {
-                guard let moved = after.first(where: { $0.id == id }),
-                      let d = self.divider.dividerFrame, let a = self.divider.alwaysFrame else { return done(false) }
-                self.record(after, divider: d, always: a)
-                done(MenuBarItems.section(of: moved, divider: d, always: a) == expect)
+                self.finish(moved ? nil : "Couldn't move \(item.name). Try again, or ⌘-drag it by hand.")
             }
         }
     }
+
 
     private func finish(_ problem: String?) {
-        divider.endArranging()
+        if divider.isArranging { divider.endArranging() }
         busy = false
         status = problem
         load()
@@ -374,18 +291,6 @@ final class DropdownModel: ObservableObject {
         }
     }
 
-    /// A synthetic drag only works on what's visible: not past the screen edge, not behind the notch.
-    private static func offScreenReason(_ item: MenuBarItem) -> String? {
-        guard let screen = NSScreen.screens.first else { return nil }
-        if item.frame.minX < screen.frame.minX || item.frame.maxX > screen.frame.maxX {
-            return "it's off the edge of the screen. Move a few icons to Always hidden first"
-        }
-        if let left = screen.auxiliaryTopLeftArea, let right = screen.auxiliaryTopRightArea,
-           item.frame.midX > left.maxX, item.frame.midX < right.minX {
-            return "it's behind the notch. Move a few icons to Always hidden first"
-        }
-        return nil
-    }
 }
 
 struct DropdownView: View {

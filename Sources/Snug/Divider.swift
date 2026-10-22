@@ -64,6 +64,18 @@ final class Divider {
     /// Screen frames of the two dividers, for sorting and moving other apps' icons.
     var dividerFrame: CGRect? { dividerItem.button?.window?.frame }
     var alwaysFrame: CGRect? { alwaysItem.button?.window?.frame }
+    /// Window-server IDs of the two dividers, which ItemMover moves icons beside. On macOS 26
+    /// a status item's real window lives in Control Centre, so our local window's number is not
+    /// it; find the window server's window with the same position and width instead.
+    var dividerWindow: CGWindowID? { Self.serverWindow(matching: dividerFrame) }
+    var alwaysWindow: CGWindowID? { Self.serverWindow(matching: alwaysFrame) }
+
+    private static func serverWindow(matching frame: CGRect?) -> CGWindowID? {
+        guard let frame else { return nil }
+        return ItemMover.windowFrames().first {
+            abs($0.value.minX - frame.minX) < 1 && abs($0.value.width - frame.width) < 1
+        }?.key
+    }
 
     /// A new status item lands wherever macOS puts it, which can be right of the divider.
     var alwaysIsMisplaced: Bool {
