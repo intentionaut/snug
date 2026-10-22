@@ -1,21 +1,14 @@
 import AppKit
 
-/// The menu bar icon: a solid short boxed beard and bowtie (design/icon-options, round 2 option 4),
-/// the same in every state. Drawn as a template image so macOS tints it for light and dark bars.
+/// The menu bar icon: a mousehole with a blanket drawn up (design/snug-options-2, F), the same in
+/// every state. Drawn on a 16-unit grid, so at 16 pt each unit is one point. Template image, so
+/// macOS tints it for light and dark menu bars.
 enum Glyph {
-    private static let viewBox = CGRect(x: 240, y: 350, width: 544, height: 500)
-
     static func image(collapsed: Bool) -> NSImage {
-        let height: CGFloat = 16
-        let size = NSSize(width: height * viewBox.width / viewBox.height, height: height)
-        let image = NSImage(size: size, flipped: true) { rect in
+        let image = NSImage(size: NSSize(width: 16, height: 16), flipped: true) { _ in
             guard let ctx = NSGraphicsContext.current?.cgContext else { return false }
-            let scale = rect.height / viewBox.height
-            ctx.scaleBy(x: scale, y: scale)
-            ctx.translateBy(x: -viewBox.minX, y: -viewBox.minY)
-            ctx.addPath(boxedBeard)
-            ctx.fillPath()
-            addBow(to: ctx, centreY: 730, size: 110)
+            ctx.addPath(arch)
+            ctx.addPath(blanket)
             ctx.fillPath()
             return true
         }
@@ -24,31 +17,31 @@ enum Glyph {
         return image
     }
 
-    private static let boxedBeard: CGPath = {
+    /// The hole's frame: outer arch radius 6, inner 3.8, both centred on (8, 8), legs to the floor.
+    private static let arch: CGPath = {
         let p = CGMutablePath()
-        p.move(to: CGPoint(x: 300, y: 400))
-        p.addQuadCurve(to: CGPoint(x: 420, y: 490), control: CGPoint(x: 330, y: 480))
-        p.addLine(to: CGPoint(x: 604, y: 490))
-        p.addQuadCurve(to: CGPoint(x: 724, y: 400), control: CGPoint(x: 694, y: 480))
-        p.addLine(to: CGPoint(x: 724, y: 520))
-        p.addQuadCurve(to: CGPoint(x: 512, y: 610), control: CGPoint(x: 720, y: 600))
-        p.addQuadCurve(to: CGPoint(x: 300, y: 520), control: CGPoint(x: 304, y: 600))
+        p.move(to: CGPoint(x: 2, y: 15))
+        p.addLine(to: CGPoint(x: 2, y: 8))
+        // y grows downward here, so sweeping from π by +π passes over the top.
+        p.addRelativeArc(center: CGPoint(x: 8, y: 8), radius: 6, startAngle: .pi, delta: .pi)
+        p.addLine(to: CGPoint(x: 14, y: 15))
+        p.addLine(to: CGPoint(x: 11.8, y: 15))
+        p.addLine(to: CGPoint(x: 11.8, y: 8))
+        p.addRelativeArc(center: CGPoint(x: 8, y: 8), radius: 3.8, startAngle: 0, delta: -.pi)
+        p.addLine(to: CGPoint(x: 4.2, y: 15))
         p.closeSubpath()
         return p
     }()
 
-    /// Two wings meeting at the centre, plus a rounded knot.
-    private static func addBow(to ctx: CGContext, centreY y: CGFloat, size s: CGFloat) {
-        let x: CGFloat = 512
-        for side: CGFloat in [-1, 1] {
-            ctx.move(to: CGPoint(x: x, y: y))
-            ctx.addLine(to: CGPoint(x: x + side * 1.6 * s, y: y - 0.9 * s))
-            ctx.addQuadCurve(to: CGPoint(x: x + side * 1.6 * s, y: y + 0.9 * s), control: CGPoint(x: x + side * 1.8 * s, y: y))
-            ctx.closePath()
-        }
-        // Fill the wings before adding the knot, or the overlap cancels out and leaves a hole.
-        ctx.fillPath()
-        ctx.addPath(CGPath(roundedRect: CGRect(x: x - 0.35 * s, y: y - 0.45 * s, width: 0.7 * s, height: 0.9 * s),
-                           cornerWidth: 0.15 * s, cornerHeight: 0.15 * s, transform: nil))
-    }
+    /// The blanket filling the bottom of the hole, its top edge one wave.
+    private static let blanket: CGPath = {
+        let p = CGMutablePath()
+        p.move(to: CGPoint(x: 4.2, y: 15))
+        p.addLine(to: CGPoint(x: 4.2, y: 11.2))
+        p.addQuadCurve(to: CGPoint(x: 8, y: 11), control: CGPoint(x: 6.1, y: 9.4))
+        p.addQuadCurve(to: CGPoint(x: 11.8, y: 10.8), control: CGPoint(x: 9.9, y: 12.6))
+        p.addLine(to: CGPoint(x: 11.8, y: 15))
+        p.closeSubpath()
+        return p
+    }()
 }
