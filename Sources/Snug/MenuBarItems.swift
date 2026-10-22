@@ -21,7 +21,7 @@ struct MenuBarItem: Identifiable, Equatable {
 }
 
 enum MenuBarItems {
-    private static let log = Logger(subsystem: "local.elle.barkeep", category: "items")
+    private static let log = Logger(subsystem: "com.intentionaut.snug", category: "items")
 
     static var isTrusted: Bool { AXIsProcessTrusted() }
 

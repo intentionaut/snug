@@ -1,5 +1,5 @@
 #!/bin/zsh
-# Fails if the binary links or calls any networking API. Barkeep has no reason to touch the network.
+# Fails if the binary links or calls any networking API. Snug has no reason to touch the network.
 set -euo pipefail
 bin=$1
 if otool -L "$bin" | grep -Ei 'Network.framework|CFNetwork'; then

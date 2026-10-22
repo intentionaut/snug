@@ -10,7 +10,7 @@ final class SettingsWindow {
         if window == nil {
             let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 380, height: 10),
                                   styleMask: [.titled, .closable], backing: .buffered, defer: false)
-            window.title = "Barkeep Settings"
+            window.title = "Snug Settings"
             window.isReleasedWhenClosed = false
             window.contentViewController = NSHostingController(rootView: SettingsView())
             window.center()
@@ -28,7 +28,7 @@ private struct SettingsView: View {
 
     var body: some View {
         Form {
-            Toggle("Open Barkeep at login", isOn: $launchAtLogin)
+            Toggle("Open Snug at login", isOn: $launchAtLogin)
                 .onChange(of: launchAtLogin) { _, on in setLaunchAtLogin(on) }
             if let loginError {
                 Text(loginError).font(.caption).foregroundStyle(.red)

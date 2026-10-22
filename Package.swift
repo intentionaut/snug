@@ -2,9 +2,9 @@
 import PackageDescription
 
 let package = Package(
-    name: "Barkeep",
+    name: "Snug",
     platforms: [.macOS(.v14)],
     targets: [
-        .executableTarget(name: "Barkeep", path: "Sources/Barkeep")
+        .executableTarget(name: "Snug", path: "Sources/Snug")
     ]
 )

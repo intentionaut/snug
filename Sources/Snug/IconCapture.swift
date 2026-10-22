@@ -6,13 +6,13 @@ import os
 /// with Screen Recording, ScreenCaptureKit can capture just those windows, even off screen.
 /// Images stay in memory and are never written anywhere.
 enum IconCapture {
-    private static let log = Logger(subsystem: "local.elle.barkeep", category: "capture")
+    private static let log = Logger(subsystem: "com.intentionaut.snug", category: "capture")
     private static let statusLayer = Int(CGWindowLevelForKey(.statusWindow))
     static let declinedKey = "screenRecordingDeclined"
 
     static var isAllowed: Bool { CGPreflightScreenCaptureAccess() }
 
-    /// Shows macOS's prompt. macOS only applies the grant after Barkeep is reopened.
+    /// Shows macOS's prompt. macOS only applies the grant after Snug is reopened.
     static func request() { _ = CGRequestScreenCaptureAccess() }
 
     /// Captures every item it can match to a menu bar window, keyed by item id.
@@ -58,7 +58,7 @@ enum IconCapture {
         return images
     }
 
-    /// Reopens Barkeep so a new Screen Recording grant takes effect.
+    /// Reopens Snug so a new Screen Recording grant takes effect.
     static func relaunch() {
         let config = NSWorkspace.OpenConfiguration()
         config.createsNewApplicationInstance = true

@@ -6,7 +6,7 @@ import os
 /// Click an icon to use it; drag it to another row to move it in the menu bar.
 /// The menu bar itself stays collapsed; hidden icons are only shown for a moment when used or moved.
 final class Dropdown: NSObject {
-    private static let log = Logger(subsystem: "local.elle.barkeep", category: "dropdown")
+    private static let log = Logger(subsystem: "com.intentionaut.snug", category: "dropdown")
     private let model: DropdownModel
     private let divider: Divider
     private var panel: NSPanel?
@@ -97,7 +97,7 @@ private final class KeyPanel: NSPanel {
 }
 
 final class DropdownModel: ObservableObject {
-    private static let log = Logger(subsystem: "local.elle.barkeep", category: "dropdown")
+    private static let log = Logger(subsystem: "com.intentionaut.snug", category: "dropdown")
     @Published var trusted = MenuBarItems.isTrusted
     @Published var sections: [Section: [MenuBarItem]] = [:]
     @Published var status: String?
@@ -359,10 +359,10 @@ private struct PermissionView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Barkeep needs Accessibility").font(.headline)
-            Text("To list your menu bar icons here, Barkeep needs to see which app owns each one. To open or move an icon for you, it clicks or ⌘-drags it the way you would.")
-            Text("Accessibility is the only macOS permission that allows both. Barkeep uses it for the menu bar and nothing else. It doesn't read your screen, your typing or other windows, and nothing leaves this Mac.")
-            Text("Next, macOS will ask you to turn Barkeep on in System Settings › Privacy & Security › Accessibility. This carries on by itself once it's on.")
+            Text("Snug needs Accessibility").font(.headline)
+            Text("To list your menu bar icons here, Snug needs to see which app owns each one. To open or move an icon for you, it clicks or ⌘-drags it the way you would.")
+            Text("Accessibility is the only macOS permission that allows both. Snug uses it for the menu bar and nothing else. It doesn't read your screen, your typing or other windows, and nothing leaves this Mac.")
+            Text("Next, macOS will ask you to turn Snug on in System Settings › Privacy & Security › Accessibility. This carries on by itself once it's on.")
                 .foregroundStyle(.secondary)
             HStack {
                 Spacer()
@@ -415,8 +415,8 @@ private struct CaptureBanner: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text("Show real icons").font(.callout.weight(.semibold))
                 Text(requested
-                     ? "Once Barkeep is on in Screen & System Audio Recording, reopen it to apply."
-                     : "Needs Screen Recording. Barkeep captures only the menu bar icons' own small windows, keeps the pictures in memory, never saves them, and nothing leaves this Mac.")
+                     ? "Once Snug is on in Screen & System Audio Recording, reopen it to apply."
+                     : "Needs Screen Recording. Snug captures only the menu bar icons' own small windows, keeps the pictures in memory, never saves them, and nothing leaves this Mac.")
                     .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             }
             Spacer(minLength: 0)

@@ -14,7 +14,7 @@ final class Divider {
     }
     private static let collapsedLength: CGFloat = 10_000
 
-    private let log = Logger(subsystem: "local.elle.barkeep", category: "divider")
+    private let log = Logger(subsystem: "com.intentionaut.snug", category: "divider")
     private let toggleItem: NSStatusItem
     private let dividerItem: NSStatusItem
     private let alwaysItem: NSStatusItem
@@ -29,6 +29,7 @@ final class Divider {
     init() {
         // Items created later sit further left, so the toggle goes first.
         toggleItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
+        // Autosave names predate the rename to Snug; macOS keeps icon positions under them.
         toggleItem.autosaveName = "barkeep.toggle"
         dividerItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         dividerItem.autosaveName = "barkeep.divider"
@@ -47,7 +48,7 @@ final class Divider {
         let settings = menu.addItem(withTitle: "Settings…", action: #selector(settingsClicked), keyEquivalent: ",")
         settings.target = self
         menu.addItem(.separator())
-        menu.addItem(withTitle: "Quit Barkeep", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        menu.addItem(withTitle: "Quit Snug", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         toggleItem.button?.sendAction(on: [.leftMouseUp, .rightMouseUp])
 
         clickMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] _ in
