@@ -1,8 +1,8 @@
 # Snug
 
-Private menu bar manager. Build: `./build.sh` → `build/Snug.app`. Build log: ~/Documents/Dex/06-Resources/Barkeep/BARKEEP-LOG.md
+Private menu bar manager. Build: `./build.sh` → `build/Snug.app`. Build log: ~/Documents/Dex/06-Resources/Snug/SNUG-LOG.md
 
-Keep a build log for this project at BARKEEP-LOG.md, and maintain it as we work.
+Keep a build log for this project at SNUG-LOG.md, and maintain it as we work.
 
 WHAT IT'S FOR
 
