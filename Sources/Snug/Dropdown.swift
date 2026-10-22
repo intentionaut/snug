@@ -366,6 +366,14 @@ final class DropdownModel: ObservableObject {
 
 struct DropdownView: View {
     @ObservedObject var model: DropdownModel
+    /// The icon being dragged and where the pointer is, in the panel's coordinates.
+    @State private var drag: (id: String, at: CGPoint)?
+    @State private var rowFrames: [Section: CGRect] = [:]
+
+    private var targetRow: Section? {
+        guard let drag else { return nil }
+        return rowFrames.first { $0.value.contains(drag.at) }?.key
+    }
 
     var body: some View {
         Group {
@@ -373,7 +381,14 @@ struct DropdownView: View {
                 VStack(alignment: .leading, spacing: 10) {
                     ForEach(Section.allCases) { section in
                         Row(section: section, items: model.sections[section] ?? [], images: model.images,
-                            busy: model.busy, onUse: model.use, onDrop: { model.move($0, to: section) })
+                            busy: model.busy, dragging: drag?.id, highlighted: targetRow == section,
+                            onUse: model.use,
+                            onDragChanged: { id, at in drag = (id, at) },
+                            onDragEnded: { id, at in
+                                let target = rowFrames.first { $0.value.contains(at) }?.key
+                                drag = nil
+                                if let target { model.move(id, to: target) }
+                            })
                     }
                     if model.sections.isEmpty && model.loading {
                         Text("Reading your menu bar…").font(.caption).foregroundStyle(.secondary)
@@ -388,6 +403,8 @@ struct DropdownView: View {
                 }
                 .padding(12)
                 .frame(width: 420)
+                .coordinateSpace(name: "panel")
+                .onPreferenceChange(RowFrames.self) { rowFrames = $0 }
             } else {
                 PermissionView { model.requestTrust() }
             }
@@ -396,35 +413,52 @@ struct DropdownView: View {
     }
 }
 
-/// One section as a wrapping grid of icons. Click to use, drag to another row to move.
+/// Each row's frame in the panel, so a drag can tell which row it ended over.
+private struct RowFrames: PreferenceKey {
+    static let defaultValue: [Section: CGRect] = [:]
+    static func reduce(value: inout [Section: CGRect], nextValue: () -> [Section: CGRect]) {
+        value.merge(nextValue()) { $1 }
+    }
+}
+
+/// One section as a wrapping grid of icons. Click to use; drag to another row to move.
+/// Dragging is a plain gesture tracked by Snug, not system drag and drop, which handed the icon
+/// over through the pasteboard and dropped out intermittently in this non-activating panel.
 private struct Row: View {
     let section: Section
     let items: [MenuBarItem]
     let images: [String: NSImage]
     let busy: Bool
+    let dragging: String?
+    let highlighted: Bool
     let onUse: (String) -> Void
-    let onDrop: (String) -> Void
-    @State private var targeted = false
+    let onDragChanged: (String, CGPoint) -> Void
+    let onDragEnded: (String, CGPoint) -> Void
+    @State private var offset: CGSize = .zero
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(section.rawValue.uppercased()).font(.caption2.weight(.semibold)).foregroundStyle(.secondary)
             Flow(spacing: 2) {
                 ForEach(items) { item in
-                    // A plain view with a tap gesture, not a Button: on macOS a Button swallows the drag.
-                    Group {
-                        // The real icon at its menu bar size when captured; the app's Dock icon otherwise.
-                        if let image = images[item.id] {
-                            Image(nsImage: image).frame(width: image.size.width, height: image.size.height)
-                        } else {
-                            Image(nsImage: item.icon).resizable().frame(width: 20, height: 20).padding(6)
-                        }
-                    }
-                    .contentShape(Rectangle())
-                    .onTapGesture { if !busy { onUse(item.id) } }
-                    .help(item.name)
-                    .opacity(busy ? 0.5 : 1)
-                    .draggable(item.id)
+                    icon(item)
+                        .contentShape(Rectangle())
+                        .offset(dragging == item.id ? offset : .zero)
+                        .zIndex(dragging == item.id ? 1 : 0)
+                        .help(item.name)
+                        .opacity(busy ? 0.5 : 1)
+                        .onTapGesture { if !busy { onUse(item.id) } }
+                        .gesture(DragGesture(minimumDistance: 4, coordinateSpace: .named("panel"))
+                            .onChanged { value in
+                                guard !busy else { return }
+                                offset = value.translation
+                                onDragChanged(item.id, value.location)
+                            }
+                            .onEnded { value in
+                                offset = .zero
+                                guard !busy else { return }
+                                onDragEnded(item.id, value.location)
+                            })
                 }
             }
             .frame(minHeight: 30, alignment: .topLeading)
@@ -433,12 +467,21 @@ private struct Row: View {
             }
         }
         .padding(8)
-        .background(RoundedRectangle(cornerRadius: 10).fill(targeted ? Color.accentColor.opacity(0.18) : Color.primary.opacity(0.05)))
-        .dropDestination(for: String.self) { ids, _ in
-            guard let id = ids.first else { return false }
-            onDrop(id)
-            return true
-        } isTargeted: { targeted = $0 }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 10).fill(highlighted ? Color.accentColor.opacity(0.18) : Color.primary.opacity(0.05)))
+        .background(GeometryReader { geo in
+            Color.clear.preference(key: RowFrames.self, value: [section: geo.frame(in: .named("panel"))])
+        })
+        .zIndex(dragging.map { id in items.contains { $0.id == id } } == true ? 1 : 0)
+    }
+
+    /// The real icon at its menu bar size when captured; the app's Dock icon otherwise.
+    @ViewBuilder private func icon(_ item: MenuBarItem) -> some View {
+        if let image = images[item.id] {
+            Image(nsImage: image).frame(width: image.size.width, height: image.size.height)
+        } else {
+            Image(nsImage: item.icon).resizable().frame(width: 20, height: 20).padding(6)
+        }
     }
 }
 
