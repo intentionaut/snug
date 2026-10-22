@@ -24,3 +24,7 @@ Requires macOS 14 or later (Liquid Glass on macOS 26) and an Apple Development s
 This builds `build/Snug.app` and installs it to `~/Applications/Snug.app`.
 
 Snug is not affiliated with Bartender or Ice.
+
+## Licence
+
+[PolyForm Noncommercial 1.0.0](LICENSE). Free for non-commercial use, with credit. Copyright 2026 Saielle DaSilva.
