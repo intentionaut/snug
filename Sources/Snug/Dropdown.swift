@@ -216,7 +216,7 @@ final class DropdownModel: ObservableObject {
         DispatchQueue.global(qos: .userInitiated).async {
             var live: MenuBarItem?
             for _ in 0..<20 {
-                live = MenuBarItems.read().first { $0.id == id }
+                live = MenuBarItems.readKnown().first { $0.id == id }
                 if let x = live?.frame.minX, x >= screen.minX, x < screen.maxX { break }
                 Thread.sleep(forTimeInterval: 0.03)
             }
@@ -253,7 +253,8 @@ final class DropdownModel: ObservableObject {
         busy = true
         status = "Moving \(item.name)…"
         divider.beginArranging()
-        DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + 0.2) {
+        whenShown {
+          DispatchQueue.global(qos: .userInitiated).async {
             let fresh = MenuBarItems.readSettled()
             DispatchQueue.main.async {
                 guard let live = fresh.first(where: { $0.id == id }),
@@ -289,9 +290,18 @@ final class DropdownModel: ObservableObject {
                         // The icon right beside the notch won't start a drag. If it is the last icon
                         // before ‖, moving ‖ to its left has the same effect.
                         let lastBeforeAlways = fresh.filter { $0.frame.maxX <= a.minX + 1 }.max { $0.frame.minX < $1.frame.minX }
+                        // Moving into Always hidden fails when ‖ is against the notch: there's no room
+                        // to its left. If the icon is the first after ‖, moving ‖ to its right does it.
+                        let firstAfterAlways = fresh.filter { $0.frame.minX >= a.maxX - 1 }.min { $0.frame.minX < $1.frame.minX }
+                        if target == .always, current == .hidden, firstAfterAlways?.id == id {
+                            Self.log.notice("fallback: moving ‖ right of \(item.name, privacy: .public)")
+                            return self.moveAlwaysDivider(toX: live.frame.maxX - 2, expect: .always, then: { ok in
+                                self.finish(ok ? nil : "Couldn't move \(item.name). Try again, or ⌘-drag it by hand.")
+                            }, check: id)
+                        }
                         if target == .hidden, current == .always, lastBeforeAlways?.id == id {
                             Self.log.notice("fallback: moving ‖ left of \(item.name, privacy: .public)")
-                            return self.moveAlwaysDivider(toX: live.frame.minX + 2, then: { ok in
+                            return self.moveAlwaysDivider(toX: live.frame.minX + 2, expect: .hidden, then: { ok in
                                 self.finish(ok ? nil : "Couldn't move \(item.name). Try again, or ⌘-drag it by hand.")
                             }, check: id)
                         }
@@ -300,10 +310,24 @@ final class DropdownModel: ObservableObject {
                 }
             }
         }
+          }
+    }
+
+    /// Runs `then` once both dividers have actually narrowed. Changing a status item's width
+    /// takes effect a moment later; reading before that sees the collapsed layout.
+    private func whenShown(_ then: @escaping () -> Void) {
+        var waited = 0.0
+        Timer.scheduledTimer(withTimeInterval: 0.03, repeats: true) { timer in
+            waited += 0.03
+            let narrow = (self.divider.dividerFrame?.width ?? 0) < 200 && (self.divider.alwaysFrame?.width ?? 0) < 200
+            guard narrow || waited > 1.5 else { return }
+            timer.invalidate()
+            then()
+        }
     }
 
     /// Drags our own ‖ divider, then reports whether the icon `id` ended up in Hidden.
-    private func moveAlwaysDivider(toX x: CGFloat, then done: @escaping (Bool) -> Void, check id: String) {
+    private func moveAlwaysDivider(toX x: CGFloat, expect: Section, then done: @escaping (Bool) -> Void, check id: String) {
         guard let a = divider.alwaysFrame, let screen = NSScreen.screens.first else { return done(false) }
         // Window frames are bottom-left origin; drags use top-left.
         let topLeft = CGRect(x: a.minX, y: screen.frame.maxY - a.maxY, width: a.width, height: a.height)
@@ -312,12 +336,12 @@ final class DropdownModel: ObservableObject {
         // Off the main thread: AppKit handles our own item's drag here, and a sleeping main thread can't.
         DispatchQueue.global(qos: .userInitiated).async {
             MenuBarItems.drag(me, toX: x)
-            Thread.sleep(forTimeInterval: 0.6)
-            let after = MenuBarItems.read()
+            let after = MenuBarItems.readSettled()
             DispatchQueue.main.async {
                 guard let moved = after.first(where: { $0.id == id }),
                       let d = self.divider.dividerFrame, let a = self.divider.alwaysFrame else { return done(false) }
-                done(MenuBarItems.section(of: moved, divider: d, always: a) == .hidden)
+                self.record(after, divider: d, always: a)
+                done(MenuBarItems.section(of: moved, divider: d, always: a) == expect)
             }
         }
     }

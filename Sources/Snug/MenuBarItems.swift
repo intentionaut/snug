@@ -30,12 +30,30 @@ enum MenuBarItems {
         _ = AXIsProcessTrustedWithOptions([key: true] as CFDictionary)
     }
 
+    /// Apps that had menu bar icons at the last full read. Asking only these is what makes a move
+    /// quick: a full read asks every running app (146 here, 0.78 s); these are about 8.
+    private static var knownApps: [NSRunningApplication] = []
+    private static let knownLock = NSLock()
+
     /// Every app's menu bar icons, left to right. Apps are asked in parallel, since one slow app
     /// would otherwise hold up the rest; each gets a short timeout.
     static func read() -> [MenuBarItem] {
-        let started = Date()
         let me = ProcessInfo.processInfo.processIdentifier
         let apps = NSWorkspace.shared.runningApplications.filter { $0.processIdentifier != me }
+        let found = read(apps, label: "all")
+        let owners = Set(found.map(\.pid))
+        knownLock.lock(); knownApps = apps.filter { owners.contains($0.processIdentifier) }; knownLock.unlock()
+        return found
+    }
+
+    /// Only the apps that had icons last time. Falls back to a full read if none are known yet.
+    static func readKnown() -> [MenuBarItem] {
+        knownLock.lock(); let apps = knownApps.filter { !$0.isTerminated }; knownLock.unlock()
+        return apps.isEmpty ? read() : read(apps, label: "known")
+    }
+
+    private static func read(_ apps: [NSRunningApplication], label: String) -> [MenuBarItem] {
+        let started = Date()
         var perApp = [[MenuBarItem]](repeating: [], count: apps.count)
         let lock = NSLock()
         DispatchQueue.concurrentPerform(iterations: apps.count) { i in
@@ -43,17 +61,17 @@ enum MenuBarItems {
             lock.lock(); perApp[i] = found; lock.unlock()
         }
         let all = perApp.joined().sorted { $0.frame.minX < $1.frame.minX }
-        log.notice("read \(all.count, privacy: .public) items from \(apps.count, privacy: .public) apps in \(Date().timeIntervalSince(started), privacy: .public)s")
+        log.notice("read \(all.count, privacy: .public) items from \(apps.count, privacy: .public) apps (\(label, privacy: .public)) in \(Date().timeIntervalSince(started), privacy: .public)s")
         return all
     }
 
     /// Reads until two reads in a row agree. The menu bar animates after a divider changes width
     /// or an icon is dropped, and a read mid-animation puts icons on the wrong side of a divider.
     static func readSettled() -> [MenuBarItem] {
-        var last = read()
-        for _ in 0..<12 {
-            Thread.sleep(forTimeInterval: 0.15)
-            let next = read()
+        var last = readKnown()
+        for _ in 0..<15 {
+            Thread.sleep(forTimeInterval: 0.08)
+            let next = readKnown()
             if next.map(\.frame) == last.map(\.frame) { return next }
             last = next
         }
