@@ -33,8 +33,9 @@ enum IconCapture {
             for item in items {
                 // Both use global coordinates with a top-left origin. The window carries a few points of
                 // padding around the icon, so match the window that contains the icon's centre.
-                // Skip the dividers' own 5,016-wide windows.
-                guard let window = windows.first(where: { $0.frame.width < 400 && $0.frame.minX <= item.frame.midX && $0.frame.maxX >= item.frame.midX }) else { continue }
+                // Skip the dividers' own 5,016-wide windows. Match the centre's y too: other windows share
+                // the status layer (Quick Note's 254 × 254 corner, an app's floating panel) and sit below the bar.
+                guard let window = windows.first(where: { $0.frame.width < 400 && $0.frame.contains(CGPoint(x: item.frame.midX, y: item.frame.midY)) }) else { continue }
                 group.addTask {
                     let config = SCStreamConfiguration()
                     config.width = Int(window.frame.width * scale)
